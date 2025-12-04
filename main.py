@@ -16,12 +16,13 @@ TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 DB_PATH = "database.db"
 
-OWNER_ID = 8389875803
-MANAGER_USERNAME = "Artbazar_support"
+# Владелец
+OWNER_ID = 1974482384   # Тилек (@ihaariss)
 
-# OpenAI client
+# Менеджер
+MANAGER_USERNAME = "Artha3ar_support"
+
 client = OpenAI(api_key=OPENAI_KEY)
-
 
 # ==========================
 #          БАЗА ДАННЫХ
@@ -115,7 +116,6 @@ def get_user_data(user_id):
         "total_requests": row[8],
     }
 
-
 # ==========================
 #        ЯЗЫКИ
 # ==========================
@@ -135,12 +135,10 @@ LOCALES = {
     },
 }
 
-
 def format_time(ts):
     if not ts:
         return "—"
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-
 
 # ==========================
 #        КЛАВИАТУРЫ
@@ -162,7 +160,6 @@ def keyboard_lang():
         ["🇷🇺 Русский"],
     ], resize_keyboard=True)
 
-
 # ==========================
 #      AI-АНАЛИЗ
 # ==========================
@@ -177,7 +174,6 @@ def ai_analyze(query):
     )
     return response.choices[0].message.content
 
-
 # ==========================
 #        ХЕНДЛЕРЫ
 # ==========================
@@ -185,6 +181,7 @@ async def start(update: Update, context):
     user = update.effective_user
     register_user(user)
 
+    # если зашёл владелец — назначаем роль
     if user.id == OWNER_ID:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -197,13 +194,11 @@ async def start(update: Update, context):
         reply_markup=keyboard_lang()
     )
 
-
 async def choose_lang(update: Update, context):
     await update.message.reply_text(
         LOCALES["ru"]["menu"],
         reply_markup=keyboard_main()
     )
-
 
 async def handle(update: Update, context):
     user_id = update.effective_user.id
@@ -231,7 +226,7 @@ async def handle(update: Update, context):
         try:
             result = ai_analyze(text)
             await update.message.reply_text(result)
-        except Exception:
+        except:
             await update.message.reply_text("Ошибка AI. Проверь ключ.")
         return
 
@@ -289,12 +284,11 @@ Username: @{data['username']}
 6 месяцев — 1690 сом  
 1 год — 2990 сом  
 
-Отправь чек менеджеру: @{MANAGER_USERNAME}
+Отправьте чек менеджеру: @{MANAGER_USERNAME}
 """)
         return
 
     await update.message.reply_text("Команда пока не поддерживается.")
-
 
 # ==========================
 #       ADMIN — GIVE PREMIUM
@@ -318,7 +312,6 @@ async def givepremium(update: Update, context):
     await update.message.reply_text(
         f"Премиум выдан пользователю {target_id} на {days} дней.\nДо: {format_time(until)}"
     )
-
 
 # ==========================
 #             MAIN
