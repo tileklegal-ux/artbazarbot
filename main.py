@@ -11,31 +11,25 @@ from telegram.ext import (
     filters,
 )
 
-# ------------------------
-#   КОНФИГ
-# ------------------------
+# BOT CONFIG
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 DB_PATH = "database.db"
 
-# Владелец (ты)
-OWNER_ID = 1974482384   # @ihaariss
-
-# Менеджер (поддержка)
-MANAGER_USERNAME = "Artha3ar_support"
-MANAGER_ID = 571499876  # @Artha3ar_support
+OWNER_ID = 1974482384          # твой ID как владельца
+MANAGER_USERNAME = "Artbazar_support"
 
 client = OpenAI(api_key=OPENAI_KEY)
 
 
-# ------------------------
-#   БАЗА ДАННЫХ
-# ------------------------
+# ==========================
+#          БАЗА ДАННЫХ
+# ==========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        """
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -47,8 +41,8 @@ def init_db():
             last_active INTEGER,
             total_requests INTEGER DEFAULT 0
         )
-        """
-    )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -56,37 +50,58 @@ def init_db():
 def register_user(user):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    now = int(time.time())
-    c.execute(
-        """
-        INSERT INTO users (user_id, username, first_name, role, created_at, last_active)
-        VALUES (?, ?, ?, 'user', ?, ?)
+
+    c.execute("""
+        INSERT INTO users (user_id, username, first_name, created_at, last_active)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             username = excluded.username,
             first_name = excluded.first_name,
             last_active = excluded.last_active
-        """,
-        (user.id, user.username, user.first_name, now, now),
-    )
+    """, (
+        user.id,
+        user.username,
+        user.first_name,
+        int(time.time()),
+        int(time.time())
+    ))
+
     conn.commit()
     conn.close()
 
 
-def get_user_data(user_id: int):
+def increment_requests(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        """
+    c.execute("UPDATE users SET total_requests = total_requests + 1 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_premium(user_id, days):
+    premium_until = int(time.time()) + days * 24 * 3600
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (premium_until, user_id))
+    conn.commit()
+    conn.close()
+    return premium_until
+
+
+def get_user_data(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
         SELECT user_id, username, first_name, role, lang,
                premium_until, created_at, last_active, total_requests
-        FROM users WHERE user_id = ?
-        """,
-        (user_id,),
-    )
+        FROM users WHERE user_id=?
+    """, (user_id,))
     row = c.fetchone()
     conn.close()
+
     if not row:
         return None
+
     return {
         "user_id": row[0],
         "username": row[1],
@@ -100,49 +115,13 @@ def get_user_data(user_id: int):
     }
 
 
-def set_role(user_id: int, role: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
-    conn.commit()
-    conn.close()
-
-
-def increment_requests(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "UPDATE users SET total_requests = total_requests + 1 WHERE user_id = ?",
-        (user_id,),
-    )
-    conn.commit()
-    conn.close()
-
-
-def set_premium(user_id: int, days: int):
-    premium_until = int(time.time()) + days * 24 * 3600
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "UPDATE users SET premium_until = ? WHERE user_id = ?",
-        (premium_until, user_id),
-    )
-    conn.commit()
-    conn.close()
-    return premium_until
-
-
-# ------------------------
-#   ЛОКАЛИЗАЦИЯ
-# ------------------------
+# ==========================
+#        ЯЗЫКИ
+# ==========================
 LOCALES = {
     "ru": {
         "choose_lang": "Выберите язык:",
-        "menu_user": "Главное меню:",
-        "menu_owner": "Меню владельца:",
-        "menu_manager": "Меню менеджера:",
-
-        # Кнопки для пользователей
+        "menu": "Главное меню:",
         "btn_analyze": "🔍 Анализ товара (демо)",
         "btn_ai": "🤖 AI-анализ (Premium)",
         "btn_trends": "📊 Тренды (демо)",
@@ -150,192 +129,242 @@ LOCALES = {
         "btn_buy": "⭐ Купить Premium",
         "btn_sale": "🔥 Акция месяца",
         "btn_change_lang": "🌐 Сменить язык",
-
-        # Кнопки для владельца
-        "btn_owner_panel": "👑 Панель владельца",
-        "btn_owner_users": "👤 Пользователи",
-        "btn_owner_premium": "⭐ Выдать премиум",
-        "btn_owner_stats": "📊 Статистика",
-        "btn_owner_broadcast": "📣 Рассылка",
-
-        # Кнопки для менеджера
-        "btn_manager_panel": "🛠 Панель менеджера",
-        "btn_manager_pending": "📋 Ожидают оплаты",
-        "btn_manager_approve": "✅ Подтвердить премиум",
-
-        # Общие
-        "btn_back_user": "⬅️ В меню пользователя",
-
+        "btn_margin": "🧮 Калькулятор маржи",
         "ask_ai": "Введите товар или нишу для AI-анализа:",
         "no_premium": "⚠ Доступно только Premium. Нажмите: ⭐ Купить Premium",
-        "not_allowed": "Нет доступа.",
-        "unknown_cmd": "Команда пока не поддерживается.",
     },
 }
 
 
-def format_time(ts: int | None) -> str:
+def format_time(ts):
     if not ts:
         return "—"
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
-# ------------------------
-#   КЛАВИАТУРЫ
-# ------------------------
-def keyboard_user(lang: str = "ru") -> ReplyKeyboardMarkup:
+# ==========================
+#        КЛАВИАТУРЫ
+# ==========================
+def keyboard_main(lang="ru"):
     t = LOCALES["ru"]
     return ReplyKeyboardMarkup(
         [
             [t["btn_analyze"], t["btn_ai"]],
-            [t["btn_trends"]],
+            [t["btn_trends"], t["btn_margin"]],
             [t["btn_cabinet"]],
             [t["btn_buy"], t["btn_sale"]],
             [t["btn_change_lang"]],
         ],
-        resize_keyboard=True,
+        resize_keyboard=True
     )
 
 
-def keyboard_owner(lang: str = "ru") -> ReplyKeyboardMarkup:
-    t = LOCALES["ru"]
-    return ReplyKeyboardMarkup(
-        [
-            [t["btn_analyze"], t["btn_ai"]],
-            [t["btn_trends"]],
-            [t["btn_owner_users"], t["btn_owner_premium"]],
-            [t["btn_owner_stats"], t["btn_owner_broadcast"]],
-            [t["btn_cabinet"], t["btn_back_user"]],
-        ],
-        resize_keyboard=True,
-    )
+def keyboard_lang():
+    return ReplyKeyboardMarkup([
+        ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
+        ["🇷🇺 Русский"],
+    ], resize_keyboard=True)
 
 
-def keyboard_manager(lang: str = "ru") -> ReplyKeyboardMarkup:
-    t = LOCALES["ru"]
-    return ReplyKeyboardMarkup(
-        [
-            [t["btn_cabinet"]],
-            [t["btn_manager_pending"], t["btn_manager_approve"]],
-            [t["btn_back_user"]],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def keyboard_lang() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        [
-            ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
-            ["🇷🇺 Русский"],
-        ],
-        resize_keyboard=True,
-    )
-
-
-# ------------------------
-#   AI АНАЛИЗ
-# ------------------------
-def ai_analyze(query: str) -> str:
+# ==========================
+#      AI-АНАЛИЗ
+# ==========================
+def ai_analyze(query):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
-                "content": "Ты — эксперт по товарке, маркетплейсам и нишам.",
+                "content": "Ты — эксперт по товарке, маркетплейсам и нишам."
             },
             {
                 "role": "user",
-                "content": f"Анализ товара/ниши: {query}. Дай кратко: спрос, конкуренция, рекомендации.",
-            },
+                "content": (
+                    f"Анализ товара/ниши: {query}. "
+                    f"Дай кратко, по делу: спрос, конкуренция, рекомендации."
+                )
+            }
         ],
         max_tokens=300,
     )
     return response.choices[0].message.content
 
 
-# ------------------------
-#   ХЕНДЛЕРЫ
-# ------------------------
+# ==========================
+#      КАЛЬКУЛЯТОР МАРЖИ
+# ==========================
+def _parse_number(text: str):
+    """Пытаемся аккуратно распарсить число из строки."""
+    text = text.replace(" ", "").replace(",", ".")
+    return float(text)
+
+
+def build_margin_response(cost, price, extra):
+    cost = float(cost)
+    price = float(price)
+    extra = float(extra)
+
+    prime_cost = cost + extra
+    profit = price - prime_cost
+    margin_percent = (profit / price * 100) if price > 0 else 0
+    roi = (profit / cost * 100) if cost > 0 else 0
+
+    # Округление для вывода
+    def fmt(x):
+        return str(round(x, 2)).rstrip("0").rstrip(".") if isinstance(x, float) else str(x)
+
+    verdict = "🟡 Средняя маржа, можно тестировать, но смотри по конкуренции."
+    if profit <= 0:
+        verdict = "🔴 Маржа отрицательная или нулевая — в таком виде товар невыгоден."
+    elif margin_percent >= 30 and roi >= 50:
+        verdict = "🟢 Хорошая маржа, товар перспективный."
+    elif margin_percent < 15:
+        verdict = "🟠 Маржа слабая. Нужна более высокая цена или более дешёвая закупка."
+
+    text = f"""
+📊 <b>Расчёт маржи</b>
+
+💰 Закупка: <b>{fmt(cost)}</b> сом  
+🧾 Затраты (доставка, упаковка, комиссии): <b>{fmt(extra)}</b> сом  
+🛒 Цена продажи: <b>{fmt(price)}</b> сом  
+
+— — —
+
+🔥 Чистая прибыль: <b>{fmt(profit)}</b> сом  
+💹 Маржинальность: <b>{fmt(margin_percent)}%</b>  
+🚀 ROI: <b>{fmt(roi)}%</b>  
+📦 Себестоимость: <b>{fmt(prime_cost)}</b> сом  
+
+— — —
+
+{verdict}
+""".strip()
+
+    return text
+
+
+# ==========================
+#        ХЕНДЛЕРЫ
+# ==========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
 
-    # проставляем роль владельца и менеджера по ID
+    # помечаем владельца
     if user.id == OWNER_ID:
-        set_role(user.id, "owner")
-    elif user.id == MANAGER_ID:
-        set_role(user.id, "manager")
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("UPDATE users SET role='owner' WHERE user_id=?", (user.id,))
+        conn.commit()
+        conn.close()
 
     await update.message.reply_text(
-        LOCALES["ru"]["choose_lang"], reply_markup=keyboard_lang()
+        LOCALES["ru"]["choose_lang"],
+        reply_markup=keyboard_lang()
     )
 
 
 async def choose_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    data = get_user_data(user.id)
-    role = data["role"] if data else "user"
-    t = LOCALES["ru"]
-
-    if role == "owner":
-        await update.message.reply_text(
-            t["menu_owner"], reply_markup=keyboard_owner()
-        )
-    elif role == "manager":
-        await update.message.reply_text(
-            t["menu_manager"], reply_markup=keyboard_manager()
-        )
-    else:
-        await update.message.reply_text(
-            t["menu_user"], reply_markup=keyboard_user()
-        )
+    await update.message.reply_text(
+        LOCALES["ru"]["menu"],
+        reply_markup=keyboard_main()
+    )
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    data = get_user_data(user.id)
-
-    # если по какой-то причине нет записи - регистрируем
-    if not data:
-        register_user(user)
-        data = get_user_data(user.id)
-
-    role = data["role"]
+    user_id = update.effective_user.id
+    data = get_user_data(user_id)
     text = update.message.text
     t = LOCALES["ru"]
 
-    increment_requests(user.id)
+    increment_requests(user_id)
 
-    if role == "owner":
-        await handle_owner(update, context, data, text, t)
-    elif role == "manager":
-        await handle_manager(update, context, data, text, t)
-    else:
-        await handle_user(update, context, data, text, t)
+    # ---------- РЕЖИМ КАЛЬКУЛЯТОРА МАРЖИ ----------
+    if context.user_data.get("mode") == "margin":
+        step = context.user_data.get("margin_step")
 
+        # Шаг 1: закупка
+        if step == "cost":
+            try:
+                cost = _parse_number(text)
+                if cost <= 0:
+                    raise ValueError
+            except Exception:
+                await update.message.reply_text(
+                    "Пожалуйста, укажи закупочную цену цифрами, например: 800"
+                )
+                return
 
-# ------------------------
-#   ЛОГИКА ПОЛЬЗОВАТЕЛЯ
-# ------------------------
-async def handle_user(update, context, data, text, t):
-    user_id = data["user_id"]
+            context.user_data["margin_cost"] = cost
+            context.user_data["margin_step"] = "price"
+            await update.message.reply_text(
+                "Теперь введи цену продажи (за сколько планируешь продавать товар). "
+                "Например: 1500"
+            )
+            return
 
-    # Аналитика (демо)
+        # Шаг 2: цена продажи
+        if step == "price":
+            try:
+                price = _parse_number(text)
+                if price <= 0:
+                    raise ValueError
+            except Exception:
+                await update.message.reply_text(
+                    "Пожалуйста, укажи цену продажи цифрами, например: 1500"
+                )
+                return
+
+            context.user_data["margin_price"] = price
+            context.user_data["margin_step"] = "extra"
+            await update.message.reply_text(
+                "Укажи дополнительные расходы (доставка, упаковка, комиссии). "
+                "Если хочешь пропустить — напиши 0."
+            )
+            return
+
+        # Шаг 3: доп. расходы, финальный подсчёт
+        if step == "extra":
+            try:
+                extra = _parse_number(text)
+                if extra < 0:
+                    raise ValueError
+            except Exception:
+                await update.message.reply_text(
+                    "Пожалуйста, укажи расходы цифрами, например: 200 или 0."
+                )
+                return
+
+            cost = context.user_data.get("margin_cost", 0)
+            price = context.user_data.get("margin_price", 0)
+
+            # сбрасываем режим
+            context.user_data["mode"] = None
+            context.user_data["margin_step"] = None
+            context.user_data.pop("margin_cost", None)
+            context.user_data.pop("margin_price", None)
+
+            result_text = build_margin_response(cost, price, extra)
+            await update.message.reply_text(result_text, parse_mode="HTML")
+            return
+
+    # --- DEMO АНАЛИЗ ----
     if text == t["btn_analyze"]:
         await update.message.reply_text("🔍 Демо-анализ работает!")
         return
 
-    # AI анализ (premium)
+    # --- AI ANALYSIS ----
     if text == t["btn_ai"]:
+        # Проверка премиума
         if not data["premium_until"] or data["premium_until"] < time.time():
             await update.message.reply_text(t["no_premium"])
             return
+
         context.user_data["mode"] = "ai"
         await update.message.reply_text(t["ask_ai"])
         return
 
-    # ответ AI по товару/нише
+    # Ответ AI
     if context.user_data.get("mode") == "ai":
         context.user_data["mode"] = None
         try:
@@ -345,18 +374,28 @@ async def handle_user(update, context, data, text, t):
             await update.message.reply_text("Ошибка AI. Проверь ключ.")
         return
 
-    # тренды (демо)
+    # --- КАЛЬКУЛЯТОР МАРЖИ: СТАРТ ---
+    if text == t["btn_margin"]:
+        context.user_data["mode"] = "margin"
+        context.user_data["margin_step"] = "cost"
+        await update.message.reply_text(
+            "Введи закупочную цену товара в сомах.\nНапример: 800"
+        )
+        return
+
+    # Тренды
     if text == t["btn_trends"]:
         await update.message.reply_text("📊 Демо-тренды работают!")
         return
 
-    # личный кабинет
+    # Личный кабинет
     if text == t["btn_cabinet"]:
         premium_status = (
             format_time(data["premium_until"])
             if data["premium_until"] and data["premium_until"] > time.time()
             else "Нет"
         )
+
         profile = f"""
 📂 Личный кабинет
 
@@ -371,13 +410,12 @@ Username: @{data['username']}
 Премиум до: {premium_status}
 Всего запросов: {data['total_requests']}
 """
-        await update.message.reply_text(profile, reply_markup=keyboard_user())
+        await update.message.reply_text(profile, reply_markup=keyboard_main())
         return
 
-    # покупка премиума
+    # Купить премиум
     if text == t["btn_buy"]:
-        await update.message.reply_text(
-            f"""
+        await update.message.reply_text(f"""
 ⭐ ТАРИФЫ PREMIUM:
 
 1 месяц — 490 сом  
@@ -391,132 +429,33 @@ Username: @{data['username']}
 1 год — 2990 сом  
 
 После оплаты отправьте чек менеджеру: @{MANAGER_USERNAME}
-"""
-        )
+""")
         return
 
-    # акция
+    # Акция
     if text == t["btn_sale"]:
-        await update.message.reply_text(
-            f"""
+        await update.message.reply_text(f"""
 🔥 АКЦИЯ:
 
 1 месяц — 390 сом  
 6 месяцев — 1690 сом  
 1 год — 2990 сом  
 
-Отправьте чек менеджеру: @{MANAGER_USERNAME}
-"""
-        )
+Отправь чек менеджеру: @{MANAGER_USERNAME}
+""")
         return
 
-    # смена языка (пока просто заново меню)
-    if text == t["btn_change_lang"]:
-        await update.message.reply_text(
-            t["choose_lang"], reply_markup=keyboard_lang()
-        )
-        return
-
-    await update.message.reply_text(t["unknown_cmd"], reply_markup=keyboard_user())
+    await update.message.reply_text("Команда пока не поддерживается.")
 
 
-# ------------------------
-#   ЛОГИКА ВЛАДЕЛЬЦА
-# ------------------------
-async def handle_owner(update, context, data, text, t):
-    # переход в обычное меню пользователя
-    if text == t["btn_back_user"]:
-        await update.message.reply_text(
-            t["menu_user"], reply_markup=keyboard_user()
-        )
-        return
-
-    # панель, пользователи, премиум и т.д.
-    if text == t["btn_owner_users"]:
-        await update.message.reply_text(
-            "👤 Раздел пользователей в разработке.\nБудет список, фильтры, поиск по ID/username."
-        )
-        return
-
-    if text == t["btn_owner_premium"]:
-        await update.message.reply_text(
-            "⭐ Премиум-выдача пока через команду:\n\n/givepremium USER_ID DAYS"
-        )
-        return
-
-    if text == t["btn_owner_stats"]:
-        await update.message.reply_text(
-            "📊 Статистика в разработке.\nПокажем: активных пользователей, премиумов, запросов."
-        )
-        return
-
-    if text == t["btn_owner_broadcast"]:
-        await update.message.reply_text(
-            "📣 Массовая рассылка появится позже.\nПока можно делать это вручную или через отдельный скрипт."
-        )
-        return
-
-    # владелец тоже может пользоваться функциями пользователя
-    await handle_user(update, context, data, text, t)
-
-
-# ------------------------
-#   ЛОГИКА МЕНЕДЖЕРА
-# ------------------------
-async def handle_manager(update, context, data, text, t):
-    # менеджер может переключиться в пользовательское меню
-    if text == t["btn_back_user"]:
-        await update.message.reply_text(
-            t["menu_user"], reply_markup=keyboard_user()
-        )
-        return
-
-    if text == t["btn_cabinet"]:
-        premium_status = (
-            format_time(data["premium_until"])
-            if data["premium_until"] and data["premium_until"] > time.time()
-            else "Нет"
-        )
-        profile = f"""
-📂 Кабинет менеджера
-
-ID: {data['user_id']}
-Username: @{data['username']}
-Имя: {data['first_name']}
-Роль: {data['role']}
-
-Премиум до: {premium_status}
-Всего запросов: {data['total_requests']}
-"""
-        await update.message.reply_text(profile, reply_markup=keyboard_manager())
-        return
-
-    if text == t["btn_manager_pending"]:
-        await update.message.reply_text(
-            "📋 Модуль 'ожидают оплаты' пока в разработке.\nПозже здесь будут заявки с чеков."
-        )
-        return
-
-    if text == t["btn_manager_approve"]:
-        await update.message.reply_text(
-            "✅ Подтверждение премиума пока через владельца.\nПозже дадим менеджеру отдельную команду /approve."
-        )
-        return
-
-    await update.message.reply_text(
-        t["unknown_cmd"], reply_markup=keyboard_manager()
-    )
-
-
-# ------------------------
-#   АДМИН-КОМАНДЫ
-# ------------------------
+# ==========================
+#       ADMIN — GIVE PREMIUM
+# ==========================
 async def givepremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    t = LOCALES["ru"]
 
     if user_id != OWNER_ID:
-        await update.message.reply_text(t["not_allowed"])
+        await update.message.reply_text("Нет доступа.")
         return
 
     try:
@@ -527,41 +466,15 @@ async def givepremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     until = set_premium(target_id, days)
+
     await update.message.reply_text(
         f"Премиум выдан пользователю {target_id} на {days} дней.\nДо: {format_time(until)}"
     )
 
 
-async def setrole_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    t = LOCALES["ru"]
-
-    if user_id != OWNER_ID:
-        await update.message.reply_text(t["not_allowed"])
-        return
-
-    try:
-        target_id = int(context.args[0])
-        role = context.args[1]
-    except Exception:
-        await update.message.reply_text(
-            "Использование: /setrole USER_ID role\nПример: /setrole 571499876 manager"
-        )
-        return
-
-    if role not in ("user", "manager", "owner"):
-        await update.message.reply_text("Роль должна быть: user / manager / owner")
-        return
-
-    set_role(target_id, role)
-    await update.message.reply_text(
-        f"Роль пользователя {target_id} изменена на: {role}"
-    )
-
-
-# ------------------------
-#   MAIN
-# ------------------------
+# ==========================
+#             MAIN
+# ==========================
 def main():
     init_db()
 
@@ -569,13 +482,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("givepremium", givepremium))
-    app.add_handler(CommandHandler("setrole", setrole_cmd))
-
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("Кыргызча|Қазақша|Русский"), choose_lang
-        )
-    )
+    app.add_handler(MessageHandler(filters.Regex("Кыргызча|Қазақша|Русский"), choose_lang))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
     app.run_polling()
