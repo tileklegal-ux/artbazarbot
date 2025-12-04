@@ -10,20 +10,20 @@ from telegram.ext import (
     filters,
 )
 
+# BOT CONFIG
 TOKEN = os.getenv("BOT_TOKEN")
 DB_PATH = "database.db"
 
-OWNER_ID = 8389875803  # ТИЛЕК — владелец бота
+OWNER_ID = 8389875803  # ТИЛЕК — владелец
 
 
 # ==========================
-#     БАЗА ДАННЫХ
+#          БАЗА ДАННЫХ
 # ==========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # базовая таблица пользователей
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -38,10 +38,10 @@ def init_db():
         )
     """)
 
-    # миграции (если бот обновляется — не ломает старые данные)
-    def add_col(name, type):
+    # Миграции — чтобы база не ломалась при обновлениях
+    def add_col(name, type_):
         try:
-            c.execute(f"ALTER TABLE users ADD COLUMN {name} {type}")
+            c.execute(f"ALTER TABLE users ADD COLUMN {name} {type_}")
         except:
             pass
 
@@ -80,23 +80,6 @@ def register_user(user):
     conn.close()
 
 
-def set_role(user_id, role):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET role=? WHERE user_id=?", (role, user_id))
-    conn.commit()
-    conn.close()
-
-
-def get_role(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT role FROM users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else "user"
-
-
 def increment_requests(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -105,8 +88,35 @@ def increment_requests(user_id):
     conn.close()
 
 
+def get_user_data(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT user_id, username, first_name, role, lang,
+               premium_until, created_at, last_active, total_requests
+        FROM users WHERE user_id=?
+    """, (user_id,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "user_id": row[0],
+        "username": row[1],
+        "first_name": row[2],
+        "role": row[3],
+        "lang": row[4],
+        "premium_until": row[5],
+        "created_at": row[6],
+        "last_active": row[7],
+        "total_requests": row[8],
+    }
+
+
 # ==========================
-#        ЯЗЫКИ
+#        ЛОГИКА ЯЗЫКОВ
 # ==========================
 LOCALES = {
     "ru": {
@@ -114,8 +124,8 @@ LOCALES = {
         "menu": "Главное меню:",
         "btn_analyze": "🔍 Анализ товара (демо)",
         "btn_trends": "📊 Тренды (демо)",
-        "btn_change_lang": "🌐 Сменить язык",
         "btn_cabinet": "📂 Мой кабинет",
+        "btn_change_lang": "🌐 Сменить язык",
         "btn_back": "‹ Назад",
     },
 
@@ -124,8 +134,8 @@ LOCALES = {
         "menu": "Башкы меню:",
         "btn_analyze": "🔍 Товар анализи (демо)",
         "btn_trends": "📊 Тренддер (демо)",
-        "btn_change_lang": "🌐 Тилди өзгөртүү",
         "btn_cabinet": "📂 Менин кабинетим",
+        "btn_change_lang": "🌐 Тилди өзгөртүү",
         "btn_back": "‹ Артка",
     },
 
@@ -134,32 +144,21 @@ LOCALES = {
         "menu": "Басты мәзір:",
         "btn_analyze": "🔍 Тауар талдауы (демо)",
         "btn_trends": "📊 Трендтер (демо)",
-        "btn_change_lang": "🌐 Тілді ауыстыру",
         "btn_cabinet": "📂 Жеке кабинет",
+        "btn_change_lang": "🌐 Тілді ауыстыру",
         "btn_back": "‹ Артқа",
     },
 }
 
 
-def get_lang(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT lang FROM users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else "ru"
-
-
-def set_lang(user_id, lang):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
-    conn.commit()
-    conn.close()
+def format_time(ts):
+    if not ts:
+        return "—"
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
 
 # ==========================
-#      КЛАВИАТУРЫ
+#       КЛАВИАТУРЫ
 # ==========================
 def keyboard_main(lang):
     t = LOCALES[lang]
@@ -185,8 +184,13 @@ async def start(update: Update, context):
     user = update.effective_user
     register_user(user)
 
+    # назначаем владельца
     if user.id == OWNER_ID:
-        set_role(user.id, "owner")
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("UPDATE users SET role='owner' WHERE user_id=?", (user.id,))
+        conn.commit()
+        conn.close()
 
     await update.message.reply_text(
         LOCALES["ru"]["choose_lang"],
@@ -196,66 +200,79 @@ async def start(update: Update, context):
 
 async def choose_lang(update: Update, context):
     user_id = update.effective_user.id
-    txt = update.message.text.lower()
+    text = update.message.text.lower()
 
-    if "кыргыз" in txt:
+    if "кыргыз" in text:
         lang = "kg"
-    elif "қазақ" in txt:
+    elif "қазақ" in text:
         lang = "kz"
     else:
         lang = "ru"
 
-    set_lang(user_id, lang)
-
-    t = LOCALES[lang]
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.commit()
+    conn.close()
 
     await update.message.reply_text(
-        t["menu"],
+        LOCALES[lang]["menu"],
         reply_markup=keyboard_main(lang)
     )
 
 
 async def handle(update: Update, context):
-    user_id = update.effective_user.id
     user = update.effective_user
+    user_id = user.id
 
     increment_requests(user_id)
 
-    lang = get_lang(user_id)
+    data = get_user_data(user_id)
+    lang = data["lang"]
     t = LOCALES[lang]
     text = update.message.text
 
-    # демо-функции
+    # ----- ДЕМО ФУНКЦИИ -----
     if text == t["btn_analyze"]:
         await update.message.reply_text("🔍 Демо-анализ работает!")
         return
 
     if text == t["btn_trends"]:
-        await update.message.reply_text("📊 Демо тренды работают!")
+        await update.message.reply_text("📊 Демо-тренды работают!")
         return
 
-    # личный кабинет (заглушка)
+    # ----- ЛИЧНЫЙ КАБИНЕТ -----
     if text == t["btn_cabinet"]:
-        await update.message.reply_text(f"""
-📂 Ваш кабинет
+        profile = f"""
+📂 Личный кабинет
 
-ID: {user_id}
-Username: @{user.username}
-Роль: {get_role(user_id)}
-Запросов: обновляется...
-Премиум: скоро
-""")
+ID: {data['user_id']}
+Username: @{data['username']}
+Имя: {data['first_name']}
+Роль: {data['role']}
+
+Дата регистрации: {format_time(data['created_at'])}
+Последний онлайн: {format_time(data['last_active'])}
+
+Премиум до: {format_time(data['premium_until'])}
+Всего запросов: {data['total_requests']}
+"""
+        await update.message.reply_text(profile, reply_markup=keyboard_main(lang))
         return
 
+    # ----- СМЕНА ЯЗЫКА -----
     if text == t["btn_change_lang"]:
-        await update.message.reply_text(t["choose_lang"], reply_markup=keyboard_lang())
+        await update.message.reply_text(
+            t["choose_lang"],
+            reply_markup=keyboard_lang()
+        )
         return
 
     await update.message.reply_text("Команда пока не поддерживается.")
 
 
 # ==========================
-#          MAIN
+#            MAIN
 # ==========================
 def main():
     init_db()
