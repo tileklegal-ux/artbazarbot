@@ -1,7 +1,15 @@
+app = "artbazarbot"
+primary_region = "iad"
+
 [http_service]
 auto_start_machines = true
-auto_stop_machines = true
+auto_stop_machines = false
 force_https = true
 internal_port = 8080
-min_machines_running = 0
+min_machines_running = 1
 processes = ["app"]
+
+[[vm]]
+cpu_kind = "shared"
+cpus = 1
+memory_mb = 1024
