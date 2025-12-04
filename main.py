@@ -15,6 +15,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 DB_PATH = "database.db"
 
 OWNER_ID = 8389875803  # ТИЛЕК — владелец
+MANAGER_USERNAME = "Artbazar_support"  # менеджер для проверки чеков
 
 
 # ==========================
@@ -38,19 +39,15 @@ def init_db():
         )
     """)
 
-    # Миграции — чтобы база не ломалась при обновлениях
+    # миграции — делаем базу устойчивой
     def add_col(name, type_):
         try:
             c.execute(f"ALTER TABLE users ADD COLUMN {name} {type_}")
         except:
             pass
 
-    add_col("username", "TEXT")
-    add_col("first_name", "TEXT")
-    add_col("role", "TEXT DEFAULT 'user'")
     add_col("premium_until", "INTEGER")
-    add_col("created_at", "INTEGER")
-    add_col("last_active", "INTEGER")
+    add_col("role", "TEXT DEFAULT 'user'")
     add_col("total_requests", "INTEGER DEFAULT 0")
 
     conn.commit()
@@ -88,6 +85,16 @@ def increment_requests(user_id):
     conn.close()
 
 
+def set_premium(user_id, days):
+    premium_until = int(time.time()) + days * 24 * 3600
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (premium_until, user_id))
+    conn.commit()
+    conn.close()
+    return premium_until
+
+
 def get_user_data(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -116,7 +123,7 @@ def get_user_data(user_id):
 
 
 # ==========================
-#        ЛОГИКА ЯЗЫКОВ
+#        ЯЗЫКИ
 # ==========================
 LOCALES = {
     "ru": {
@@ -125,8 +132,9 @@ LOCALES = {
         "btn_analyze": "🔍 Анализ товара (демо)",
         "btn_trends": "📊 Тренды (демо)",
         "btn_cabinet": "📂 Мой кабинет",
+        "btn_buy": "⭐ Купить Premium",
+        "btn_sale": "🔥 Акция месяца",
         "btn_change_lang": "🌐 Сменить язык",
-        "btn_back": "‹ Назад",
     },
 
     "kg": {
@@ -135,8 +143,9 @@ LOCALES = {
         "btn_analyze": "🔍 Товар анализи (демо)",
         "btn_trends": "📊 Тренддер (демо)",
         "btn_cabinet": "📂 Менин кабинетим",
+        "btn_buy": "⭐ Премиум алуу",
+        "btn_sale": "🔥 Айдын акциясы",
         "btn_change_lang": "🌐 Тилди өзгөртүү",
-        "btn_back": "‹ Артка",
     },
 
     "kz": {
@@ -145,8 +154,9 @@ LOCALES = {
         "btn_analyze": "🔍 Тауар талдауы (демо)",
         "btn_trends": "📊 Трендтер (демо)",
         "btn_cabinet": "📂 Жеке кабинет",
+        "btn_buy": "⭐ Premium сатып алу",
+        "btn_sale": "🔥 Ай акциясы",
         "btn_change_lang": "🌐 Тілді ауыстыру",
-        "btn_back": "‹ Артқа",
     },
 }
 
@@ -158,7 +168,7 @@ def format_time(ts):
 
 
 # ==========================
-#       КЛАВИАТУРЫ
+#        КЛАВИАТУРЫ
 # ==========================
 def keyboard_main(lang):
     t = LOCALES[lang]
@@ -166,6 +176,7 @@ def keyboard_main(lang):
         [t["btn_analyze"]],
         [t["btn_trends"]],
         [t["btn_cabinet"]],
+        [t["btn_buy"], t["btn_sale"]],
         [t["btn_change_lang"]],
     ], resize_keyboard=True)
 
@@ -178,13 +189,13 @@ def keyboard_lang():
 
 
 # ==========================
-#       ХЕНДЛЕРЫ
+#        ХЕНДЛЕРЫ
 # ==========================
 async def start(update: Update, context):
     user = update.effective_user
     register_user(user)
 
-    # назначаем владельца
+    # владелец
     if user.id == OWNER_ID:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -200,11 +211,11 @@ async def start(update: Update, context):
 
 async def choose_lang(update: Update, context):
     user_id = update.effective_user.id
-    text = update.message.text.lower()
+    txt = update.message.text.lower()
 
-    if "кыргыз" in text:
+    if "кыргыз" in txt:
         lang = "kg"
-    elif "қазақ" in text:
+    elif "қазақ" in txt:
         lang = "kz"
     else:
         lang = "ru"
@@ -232,7 +243,7 @@ async def handle(update: Update, context):
     t = LOCALES[lang]
     text = update.message.text
 
-    # ----- ДЕМО ФУНКЦИИ -----
+    # ----- демо функционал -----
     if text == t["btn_analyze"]:
         await update.message.reply_text("🔍 Демо-анализ работает!")
         return
@@ -241,8 +252,14 @@ async def handle(update: Update, context):
         await update.message.reply_text("📊 Демо-тренды работают!")
         return
 
-    # ----- ЛИЧНЫЙ КАБИНЕТ -----
+    # ----- личный кабинет -----
     if text == t["btn_cabinet"]:
+        premium_status = (
+            format_time(data["premium_until"])
+            if data["premium_until"] and data["premium_until"] > time.time()
+            else "Нет"
+        )
+
         profile = f"""
 📂 Личный кабинет
 
@@ -254,25 +271,84 @@ Username: @{data['username']}
 Дата регистрации: {format_time(data['created_at'])}
 Последний онлайн: {format_time(data['last_active'])}
 
-Премиум до: {format_time(data['premium_until'])}
+Премиум до: {premium_status}
 Всего запросов: {data['total_requests']}
 """
         await update.message.reply_text(profile, reply_markup=keyboard_main(lang))
         return
 
-    # ----- СМЕНА ЯЗЫКА -----
+    # ----- акция месяца -----
+    if text == t["btn_sale"]:
+        await update.message.reply_text(f"""
+🔥 АКЦИЯ МЕСЯЦА
+
+1 месяц — 390 сом  
+6 месяцев — 1690 сом  
+12 месяцев — 2990 сом  
+
+После оплаты отправьте чек: @{MANAGER_USERNAME}
+        """)
+        return
+
+    # ----- покупка премиума -----
+    if text == t["btn_buy"]:
+        await update.message.reply_text(f"""
+⭐ Premium возможности:
+
+• Полный анализ товара  
+• Подбор ниши  
+• Проверка спроса  
+• Анализ конкурентов  
+• Идеи товаров  
+• Тренды  
+• Рекомендации по рекламе  
+• Личный менеджер
+
+💰 Цены:
+1 месяц — 490 сом  
+6 месяцев — 1990 сом  
+12 месяцев — 3490 сом  
+
+🔥 Сейчас действует акция! (Смотри кнопку Акция месяца)
+
+После оплаты отправьте чек менеджеру: @{MANAGER_USERNAME}
+        """)
+        return
+
+    # ----- смена языка -----
     if text == t["btn_change_lang"]:
-        await update.message.reply_text(
-            t["choose_lang"],
-            reply_markup=keyboard_lang()
-        )
+        await update.message.reply_text(t["choose_lang"], reply_markup=keyboard_lang())
         return
 
     await update.message.reply_text("Команда пока не поддерживается.")
 
 
 # ==========================
-#            MAIN
+#   ADMIN: ДАТЬ ПРЕМИУМ
+# ==========================
+async def givepremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    if user.id != OWNER_ID:
+        await update.message.reply_text("Нет доступа.")
+        return
+
+    try:
+        target_id = int(context.args[0])
+        days = int(context.args[1])
+    except:
+        await update.message.reply_text("Использование: /givepremium USER_ID DAYS")
+        return
+
+    until = set_premium(target_id, days)
+
+    await update.message.reply_text(
+        f"Премиум выдан!\nUser: {target_id}\nДней: {days}\nДо: {format_time(until)}"
+    )
+
+
+# ==========================
+#             MAIN
 # ==========================
 def main():
     init_db()
@@ -280,6 +356,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("givepremium", givepremium))
     app.add_handler(MessageHandler(filters.Regex("Кыргызча|Қазақша|Русский"), choose_lang))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
