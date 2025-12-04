@@ -14,12 +14,19 @@ from telegram.ext import (
 # ==========================
 #          CONFIG
 # ==========================
+
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+
 DB_PATH = "database.db"
 
-OWNER_ID = 1974482384          # твой ID как владельца
-MANAGER_USERNAME = "Artbazar_support"
+# Владелец
+OWNER_ID = 1974482384
+OWNER_USERNAME = "ihaariss"
+
+# Менеджер по умолчанию (твой текущий менеджер)
+DEFAULT_MANAGER_ID = 571499876
+DEFAULT_MANAGER_USERNAME = "Artbazar_support"
 
 client = OpenAI(api_key=OPENAI_KEY)
 
@@ -27,6 +34,7 @@ client = OpenAI(api_key=OPENAI_KEY)
 # ==========================
 #          БАЗА ДАННЫХ
 # ==========================
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -36,7 +44,7 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
-            role TEXT DEFAULT 'user',
+            role TEXT DEFAULT 'user',   -- user / manager / owner
             lang TEXT DEFAULT 'ru',
             premium_until INTEGER,
             created_at INTEGER,
@@ -67,27 +75,16 @@ def register_user(user):
         int(time.time()),
         int(time.time())
     ))
+    conn.commit()
+
+    # Назначаем роли владельцу и базовому менеджеру
+    if user.id == OWNER_ID:
+        c.execute("UPDATE users SET role='owner' WHERE user_id=?", (user.id,))
+    elif user.id == DEFAULT_MANAGER_ID:
+        c.execute("UPDATE users SET role='manager' WHERE user_id=?", (user.id,))
 
     conn.commit()
     conn.close()
-
-
-def increment_requests(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET total_requests = total_requests + 1 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def set_premium(user_id, days):
-    premium_until = int(time.time()) + days * 24 * 3600
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (premium_until, user_id))
-    conn.commit()
-    conn.close()
-    return premium_until
 
 
 def get_user_data(user_id):
@@ -117,9 +114,68 @@ def get_user_data(user_id):
     }
 
 
+def increment_requests(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE users SET total_requests = total_requests + 1,
+                         last_active = ?
+        WHERE user_id=?
+    """, (int(time.time()), user_id))
+    conn.commit()
+    conn.close()
+
+
+def set_role(user_id: int, role: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET role=? WHERE user_id=?", (role, user_id))
+    conn.commit()
+    conn.close()
+
+
+def set_premium(user_id, days):
+    premium_until = int(time.time()) + days * 24 * 3600
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (premium_until, user_id))
+    conn.commit()
+    conn.close()
+    return premium_until
+
+
+def get_stats():
+    now = int(time.time())
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+
+    c.execute("SELECT COUNT(*) FROM users WHERE premium_until IS NOT NULL AND premium_until>?", (now,))
+    premium_users = c.fetchone()[0]
+
+    c.execute("SELECT COUNT(*) FROM users WHERE role='manager'")
+    managers = c.fetchone()[0]
+
+    since_24h = now - 24 * 3600
+    c.execute("SELECT COUNT(*) FROM users WHERE last_active>?", (since_24h,))
+    active_24h = c.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "total_users": total_users,
+        "premium_users": premium_users,
+        "managers": managers,
+        "active_24h": active_24h,
+    }
+
+
 # ==========================
 #        ЛОКАЛИЗАЦИЯ
 # ==========================
+
 LOCALES = {
     "ru": {
         "choose_lang": "Выберите язык:",
@@ -135,6 +191,20 @@ LOCALES = {
         "btn_buy": "⭐ Купить Premium",
         "btn_sale": "🔥 Акция месяца",
         "btn_change_lang": "🌐 Сменить язык",
+
+        # Менеджер
+        "btn_manager_menu": "👨‍💼 Менеджер-меню",
+        "btn_manager_give": "⭐ Выдать премиум",
+        "btn_manager_stats": "📊 Статистика (24 ч)",
+
+        # Владелец
+        "btn_owner_menu": "👑 Админ-панель",
+        "btn_owner_stats": "📊 Полная статистика",
+        "btn_owner_managers": "👨‍💼 Менеджеры",
+        "btn_owner_add_manager": "➕ Добавить менеджера",
+        "btn_owner_remove_manager": "➖ Удалить менеджера",
+        "btn_owner_broadcast": "📨 Рассылка (в разработке)",
+
         "ask_niche": (
             "Расскажи, какой у тебя опыт, стартовый бюджет, страна/город и где хочешь продавать "
             "(маркетплейс, Instagram, офлайн и т.п.).\n\n"
@@ -162,6 +232,12 @@ LOCALES = {
         ),
         "ask_ai": "Введите товар или нишу для глубокого AI-анализа (Premium):",
         "no_premium": "⚠ Доступно только Premium. Нажмите: ⭐ Купить Premium",
+
+        "manager_give_prompt": (
+            "Отправь в одном сообщении: <code>USER_ID КОЛИЧЕСТВО_ДНЕЙ</code>\n"
+            "Например: <code>123456789 30</code>"
+        ),
+        "not_allowed": "У вас нет доступа к этой команде.",
     },
 }
 
@@ -175,7 +251,8 @@ def format_time(ts):
 # ==========================
 #        КЛАВИАТУРЫ
 # ==========================
-def keyboard_main(lang: str = "ru"):
+
+def keyboard_user(lang: str = "ru"):
     t = LOCALES["ru"]
     return ReplyKeyboardMarkup(
         [
@@ -200,11 +277,36 @@ def keyboard_lang():
     )
 
 
+def keyboard_manager():
+    t = LOCALES["ru"]
+    return ReplyKeyboardMarkup(
+        [
+            [t["btn_manager_give"], t["btn_manager_stats"]],
+            [t["btn_cabinet"]],
+            [t["btn_change_lang"]],
+        ],
+        resize_keyboard=True
+    )
+
+
+def keyboard_owner():
+    t = LOCALES["ru"]
+    return ReplyKeyboardMarkup(
+        [
+            [t["btn_owner_stats"], t["btn_owner_managers"]],
+            [t["btn_manager_give"]],
+            [t["btn_cabinet"]],
+            [t["btn_change_lang"]],
+        ],
+        resize_keyboard=True
+    )
+
+
 # ==========================
 #      AI-ПОМОЩНИКИ
 # ==========================
+
 def _call_openai(system_prompt: str, user_prompt: str, max_tokens: int = 600) -> str:
-    """Общий хелпер для всех аналитик."""
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -218,110 +320,103 @@ def _call_openai(system_prompt: str, user_prompt: str, max_tokens: int = 600) ->
 
 def ai_niche(query: str) -> str:
     system = (
-        "Ты бизнес-аналитик и продуктолог. Помогаешь начинающим и действующим предпринимателям "
-        "подбирать ниши под их опыт, бюджет и рынок. Отвечай структурно, по делу, без воды. "
-        "Учитывай риски, конкуренцию, маржинальность и сложность запуска."
+        "Ты бизнес-аналитик и продуктолог. Помогаешь предпринимателям подбирать ниши под их опыт, бюджет и рынок."
+        " Отвечай структурно, по делу, без воды."
     )
     user = (
         "Данные о запросе на подбор ниши:\n"
         f"{query}\n\n"
-        "Сформируй ответ по структуре:\n"
-        "1) Кратко профиль предпринимателя (1–2 строки).\n"
+        "Сформируй ответ:\n"
+        "1) Краткий профиль предпринимателя.\n"
         "2) 3–7 конкретных ниш (название + формат продаж).\n"
         "3) Для каждой ниши: плюсы, риски, пример цен/чека, пример воронки продаж.\n"
-        "4) Какую нишу ты бы рекомендовал начать тестировать первой и почему.\n"
+        "4) Какую нишу рекомендовать на старт и почему.\n"
     )
     return _call_openai(system, user)
 
 
 def ai_market(query: str) -> str:
     system = (
-        "Ты эксперт по анализу рынков в СНГ. Учитываешь платёжеспособность, конкуренцию, формат продаж, "
-        "логистику и онлайн/офлайн поведение покупателей. Пишешь без воды, с выводами и рекомендациями."
+        "Ты эксперт по анализу рынков в СНГ. Учитываешь платёжеспособность, конкуренцию, формат продаж и т.д."
     )
     user = (
         "Исходные данные для анализа рынка:\n"
         f"{query}\n\n"
         "Сделай:\n"
-        "1) Обзор рынка (объём/стадия, рост или стагнация, на чём зарабатывают игроки).\n"
-        "2) Портрет клиента (кто покупает, боли, мотивация, частота покупок).\n"
-        "3) Оценка конкуренции (насыщенность, уровень демпинга, чем можно отличаться).\n"
+        "1) Обзор рынка.\n"
+        "2) Портрет клиента.\n"
+        "3) Оценка конкуренции.\n"
         "4) Риски и барьеры входа.\n"
-        "5) Практические рекомендации: с чего зайти на рынок при небольшом бюджете.\n"
+        "5) Практические рекомендации по заходу на рынок.\n"
     )
     return _call_openai(system, user)
 
 
 def ai_competitors(query: str) -> str:
     system = (
-        "Ты специалист по конкурентному анализу. Умеешь разбирать сильные и слабые стороны конкурентов "
-        "и предлагать стратегию дифференциации. Пиши конкретно, без общих фраз."
+        "Ты специалист по конкурентному анализу. Разбираешь сильные и слабые стороны конкурентов "
+        "и предлагаешь стратегию дифференциации."
     )
     user = (
         "Описание конкурентов:\n"
         f"{query}\n\n"
-        "Дай анализ по структуре:\n"
-        "1) Таблично/структурно: кто конкуренты и что предлагают (формат, ЦА, ценовой сегмент).\n"
+        "Дай анализ:\n"
+        "1) Кто конкуренты и что предлагают.\n"
         "2) Их сильные стороны.\n"
-        "3) Их слабые места и недоработки.\n"
-        "4) Возможные точки дифференциации для нашего проекта (что сделать иначе/лучше).\n"
-        "5) Рекомендации по позиционированию и офферам.\n"
+        "3) Слабые места.\n"
+        "4) Точки дифференциации для нашего проекта.\n"
+        "5) Рекомендации по позиционированию.\n"
     )
     return _call_openai(system, user)
 
 
 def ai_trends(query: str) -> str:
     system = (
-        "Ты аналитик по трендам в e-commerce и онлайн-сервисах. "
-        "Не имеешь доступа к реальному времени, поэтому опираешься на общую картину, "
-        "известные изменения спроса и здравый смысл. Всегда честно указывай, что это не точные данные "
-        "по конкретным маркетплейсам, а стратегический взгляд."
+        "Ты аналитик по трендам в e-commerce. Указывай, что это стратегический взгляд, "
+        "а не точные данные с маркетплейсов."
     )
     user = (
         "Запрос по трендам:\n"
         f"{query}\n\n"
         "Нужно:\n"
-        "1) Описать 5–10 актуальных трендов в этой категории/регионе.\n"
-        "2) Пояснить, почему они появились (поведение людей, технологии, экономика).\n"
-        "3) Какие товарные категории или форматы услуг логично заходят под эти тренды.\n"
-        "4) Какие тренды выглядят перегретыми и где есть ещё окно возможностей.\n"
+        "1) 5–10 актуальных трендов в этой категории/регионе.\n"
+        "2) Почему они появились.\n"
+        "3) Какие товары/форматы подходят под эти тренды.\n"
+        "4) Какие тренды перегреты, где есть окно возможностей.\n"
     )
     return _call_openai(system, user)
 
 
 def ai_ideas(query: str) -> str:
     system = (
-        "Ты продакт-менеджер и предприниматель. Помогаешь генерировать идеи товаров и направлений "
-        "под конкретного человека и его ограничений. Учитывай опыт, интересы, бюджет и рынок."
+        "Ты продакт-менеджер и предприниматель. Генерируешь идеи товаров/направлений под конкретного человека."
     )
     user = (
         "Данные о человеке и его запросе на идеи:\n"
         f"{query}\n\n"
         "Сделай:\n"
-        "1) Краткий портрет (человек, ресурсы, ограничения).\n"
-        "2) 5–15 идей товаров/направлений с коротким описанием.\n"
-        "3) Для каждой идеи: формат продаж, пример чека, плюс/минус по сложности.\n"
-        "4) Какие 1–2 идеи лучше всего подойдут на старт и почему.\n"
+        "1) Краткий портрет.\n"
+        "2) 5–15 идей с описанием.\n"
+        "3) Формат продаж, пример чека, плюс/минус по сложности для каждой идеи.\n"
+        "4) 1–2 лучших варианта на старт и почему.\n"
     )
     return _call_openai(system, user)
 
 
 def ai_premium_analyze(query: str) -> str:
     system = (
-        "Ты senior-аналитик по товарному бизнесу и маркетплейсам. "
-        "Делаешь глубокий разбор одного товара или ниши: цифры примерные, но логика должна быть очень сильной. "
-        "Пиши структурно и по делу, как платный консалтинг."
+        "Ты senior-аналитик по товарному бизнесу и маркетплейсам. Делаешь глубокий разбор товара или ниши."
     )
     user = (
         "Объект для анализа (товар или ниша):\n"
         f"{query}\n\n"
         "Нужно:\n"
-        "1) Краткое резюме — стоит ли вообще лезть.\n"
+        "1) Резюме — стоит ли лезть.\n"
         "2) Спрос и ЦА.\n"
-        "3) Конкуренция и варианты позиционирования.\n"
-        "4) Пример математики (примерные цены, маржа, чек).\n"
+        "3) Конкуренция и позиционирование.\n"
+        "4) Пример математики.\n"
         "5) Риски.\n"
-        "6) Пошаговый план теста ниши на ближайшие 2–4 недели.\n"
+        "6) Пошаговый план теста на 2–4 недели.\n"
     )
     return _call_openai(system, user, max_tokens=800)
 
@@ -329,8 +424,8 @@ def ai_premium_analyze(query: str) -> str:
 # ==========================
 #      КАЛЬКУЛЯТОР МАРЖИ
 # ==========================
+
 def _parse_number(text: str):
-    """Пытаемся аккуратно распарсить число из строки."""
     text = text.replace(" ", "").replace(",", ".")
     return float(text)
 
@@ -381,29 +476,50 @@ def build_margin_response(cost, price, extra):
 # ==========================
 #          ХЕНДЛЕРЫ
 # ==========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
 
-    if user.id == OWNER_ID:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("UPDATE users SET role='owner' WHERE user_id=?", (user.id,))
-        conn.commit()
-        conn.close()
+    data = get_user_data(user.id)
 
-    await update.message.reply_text(
-        LOCALES["ru"]["choose_lang"],
-        reply_markup=keyboard_lang()
-    )
+    if data["role"] == "owner":
+        await update.message.reply_text(
+            "Ты владелец бота. Клиентское меню — ниже. Для админ-панели используй команду /admin.",
+            reply_markup=keyboard_user()
+        )
+    elif data["role"] == "manager":
+        await update.message.reply_text(
+            "Вы менеджер. Для работы с премиумом используйте /admin.",
+            reply_markup=keyboard_user()
+        )
+    else:
+        await update.message.reply_text(
+            LOCALES["ru"]["choose_lang"],
+            reply_markup=keyboard_lang()
+        )
 
 
 async def choose_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # пока просто показываем русское меню
     await update.message.reply_text(
         LOCALES["ru"]["menu"],
-        reply_markup=keyboard_main()
+        reply_markup=keyboard_user()
     )
+
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    data = get_user_data(user.id)
+
+    if not data or data["role"] not in ("owner", "manager"):
+        await update.message.reply_text(LOCALES["ru"]["not_allowed"])
+        return
+
+    if data["role"] == "owner":
+        await update.message.reply_text("👑 Админ-панель владельца", reply_markup=keyboard_owner())
+    else:
+        await update.message.reply_text("👨‍💼 Менеджер-меню", reply_markup=keyboard_manager())
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -412,7 +528,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     t = LOCALES["ru"]
 
-    # гарантируем, что юзер есть в БД
     data = get_user_data(user_id)
     if not data:
         register_user(user)
@@ -420,9 +535,29 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     increment_requests(user_id)
 
+    role = data["role"]
     mode = context.user_data.get("mode")
 
-    # ---------- РЕЖИМ КАЛЬКУЛЯТОРА МАРЖИ ----------
+    # ----------- режимы менеджера: выдача премиума ----------
+    if mode == "manager_givepremium" and role in ("manager", "owner"):
+        context.user_data["mode"] = None
+        try:
+            parts = text.strip().split()
+            target_id = int(parts[0])
+            days = int(parts[1])
+        except Exception:
+            await update.message.reply_text(
+                "Неверный формат. Пример: <code>123456789 30</code>", parse_mode="HTML"
+            )
+            return
+
+        until = set_premium(target_id, days)
+        await update.message.reply_text(
+            f"Премиум выдан пользователю {target_id} на {days} дней.\nДо: {format_time(until)}"
+        )
+        return
+
+    # ---------- режим калькулятора маржи ----------
     if mode == "margin":
         step = context.user_data.get("margin_step")
 
@@ -440,8 +575,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["margin_cost"] = cost
             context.user_data["margin_step"] = "price"
             await update.message.reply_text(
-                "Теперь введи цену продажи (за сколько планируешь продавать товар).\n"
-                "Например: 1500"
+                "Теперь введи цену продажи.\nНапример: 1500"
             )
             return
 
@@ -487,7 +621,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result_text, parse_mode="HTML")
             return
 
-    # ---------- AI-РЕЖИМЫ (НИША / РЫНОК / КОНКУРЕНТЫ / ТРЕНДЫ / ИДЕИ / PREMIUM) ----------
+    # ---------- AI режимы ----------
     if mode == "niche":
         context.user_data["mode"] = None
         try:
@@ -503,7 +637,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = ai_market(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text("Ошибка при анализе рынка. Проверь OpenAI-ключ.")
+            await update.message.reply_text("Ошибка при анализе рынка.")
         return
 
     if mode == "competitors":
@@ -512,7 +646,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = ai_competitors(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text("Ошибка при анализе конкурентов. Проверь OpenAI-ключ.")
+            await update.message.reply_text("Ошибка при анализе конкурентов.")
         return
 
     if mode == "trends":
@@ -521,96 +655,5 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = ai_trends(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text(
-                "Не удалось получить трендовую аналитику. Проверь OpenAI-ключ."
-            )
-        return
-
-    if mode == "ideas":
-        context.user_data["mode"] = None
-        try:
-            result = ai_ideas(text)
-            await update.message.reply_text(result)
-        except Exception:
-            await update.message.reply_text("Ошибка при генерации идей. Проверь OpenAI-ключ.")
-        return
-
-    if mode == "ai_premium":
-        context.user_data["mode"] = None
-        try:
-            result = ai_premium_analyze(text)
-            await update.message.reply_text(result)
-        except Exception:
-            await update.message.reply_text("Ошибка AI-анализа. Проверь OpenAI-ключ.")
-        return
-
-    # ---------- КНОПКИ МЕНЮ ----------
-    if text == t["btn_niche"]:
-        context.user_data["mode"] = "niche"
-        await update.message.reply_text(t["ask_niche"])
-        return
-
-    if text == t["btn_market"]:
-        context.user_data["mode"] = "market"
-        await update.message.reply_text(t["ask_market"])
-        return
-
-    if text == t["btn_competitors"]:
-        context.user_data["mode"] = "competitors"
-        await update.message.reply_text(t["ask_competitors"])
-        return
-
-    if text == t["btn_trends"]:
-        context.user_data["mode"] = "trends"
-        await update.message.reply_text(t["ask_trends"])
-        return
-
-    if text == t["btn_ideas"]:
-        context.user_data["mode"] = "ideas"
-        await update.message.reply_text(t["ask_ideas"])
-        return
-
-    if text == t["btn_margin"]:
-        context.user_data["mode"] = "margin"
-        context.user_data["margin_step"] = "cost"
-        await update.message.reply_text(
-            "Введи закупочную цену товара в сомах.\nНапример: 800"
-        )
-        return
-
-    if text == t["btn_ai"]:
-        # проверка премиума
-        if not data["premium_until"] or data["premium_until"] < time.time():
-            await update.message.reply_text(t["no_premium"])
-            return
-
-        context.user_data["mode"] = "ai_premium"
-        await update.message.reply_text(t["ask_ai"])
-        return
-
-    if text == t["btn_cabinet"]:
-        premium_status = (
-            format_time(data["premium_until"])
-            if data["premium_until"] and data["premium_until"] > time.time()
-            else "Нет"
-        )
-
-        profile = f"""
-📂 Личный кабинет
-
-ID: {data['user_id']}
-Username: @{data['username']}
-Имя: {data['first_name']}
-Роль: {data['role']}
-
-Дата регистрации: {format_time(data['created_at'])}
-Последний онлайн: {format_time(data['last_active'])}
-
-Премиум до: {premium_status}
-Всего запросов: {data['total_requests']}
-"""
-        await update.message.reply_text(profile, reply_markup=keyboard_main())
-        return
-
-    if text == t["btn_buy"]:
-        await upd
+            await update.message.reply_text("Не удалось получить трендовую аналитику.")
+       
