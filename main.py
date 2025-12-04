@@ -10,36 +10,27 @@ from telegram.ext import (
     filters,
 )
 
-# ===== МОДУЛИ =====
-from analytics import analyze_product
-from trends import get_trends
-from ideas import get_ideas
-from categories import get_categories
-from profit_calc import calculate_profit
-from descriptions import generate_description
-from premium import premium_info
-
-
-# ===== КОНФИГ =====
 TOKEN = os.getenv("BOT_TOKEN")
 DB_PATH = "database.db"
 
-OWNER_ID = 8389875803  # ← вставлен твой Telegram ID
+OWNER_ID = 8389875803  # ТИЛЕК — владелец бота
 
 
-# ===== БАЗА ДАННЫХ =====
+# ==========================
+#     БАЗА ДАННЫХ
+# ==========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Основная таблица пользователей
+    # базовая таблица пользователей
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
             role TEXT DEFAULT 'user',
-            lang TEXT NOT NULL DEFAULT 'ru',
+            lang TEXT DEFAULT 'ru',
             premium_until INTEGER,
             created_at INTEGER,
             last_active INTEGER,
@@ -47,26 +38,25 @@ def init_db():
         )
     """)
 
-    # Миграции под новые поля (если старые данные)
-    def add_column(name, col_type):
+    # миграции (если бот обновляется — не ломает старые данные)
+    def add_col(name, type):
         try:
-            c.execute(f"ALTER TABLE users ADD COLUMN {name} {col_type}")
+            c.execute(f"ALTER TABLE users ADD COLUMN {name} {type}")
         except:
             pass
 
-    add_column("username", "TEXT")
-    add_column("first_name", "TEXT")
-    add_column("role", "TEXT DEFAULT 'user'")
-    add_column("premium_until", "INTEGER")
-    add_column("created_at", "INTEGER")
-    add_column("last_active", "INTEGER")
-    add_column("total_requests", "INTEGER DEFAULT 0")
+    add_col("username", "TEXT")
+    add_col("first_name", "TEXT")
+    add_col("role", "TEXT DEFAULT 'user'")
+    add_col("premium_until", "INTEGER")
+    add_col("created_at", "INTEGER")
+    add_col("last_active", "INTEGER")
+    add_col("total_requests", "INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()
 
 
-# ===== РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ =====
 def register_user(user):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -90,85 +80,21 @@ def register_user(user):
     conn.close()
 
 
-# ===== НАЗНАЧАЕМ ВЛАДЕЛЬЦА =====
-def make_owner(owner_id):
+def set_role(user_id, role):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE users SET role='owner' WHERE user_id=?", (owner_id,))
+    c.execute("UPDATE users SET role=? WHERE user_id=?", (role, user_id))
     conn.commit()
     conn.close()
 
 
-# ===== ЯЗЫКОВЫЕ ПАКЕТЫ =====
-LOCALES = {
-    "ru": {
-        "choose_lang": "Выберите язык:",
-        "menu_title": "Главное меню:",
-        "btn_analyze": "🔍 Анализ товара",
-        "btn_trends": "📊 Тренды",
-        "btn_ideas": "💡 Идеи",
-        "btn_categories": "🛒 Категории",
-        "btn_calc": "🧮 Калькулятор прибыли",
-        "btn_desc": "✍️ Описание для продажи",
-        "btn_premium": "⭐ Премиум аналитика",
-        "btn_change_lang": "🌐 Сменить язык",
-        "btn_back": "‹ Назад",
-        "ask_product": "Введите название товара:",
-        "unknown_cmd": "Функция пока не подключена.",
-    },
-}
-
-# Кыргызстан
-LOCALES["kg"] = {
-    "choose_lang": "Тилди тандаңыз:",
-    "menu_title": "Башкы меню:",
-    "btn_analyze": "🔍 Товар анализи",
-    "btn_trends": "📊 Тренддер",
-    "btn_ideas": "💡 Идеялар",
-    "btn_categories": "🛒 Категориялар",
-    "btn_calc": "🧮 Пайда эсептегич",
-    "btn_desc": "✍️ Саттуу тексти",
-    "btn_premium": "⭐ Премиум аналитика",
-    "btn_change_lang": "🌐 Тилди өзгөртүү",
-    "btn_back": "‹ Артка",
-    "ask_product": "Товар атын жазыңыз:",
-    "unknown_cmd": "Функция азырынча иштебейт.",
-}
-
-# Казахстан
-LOCALES["kz"] = {
-    "choose_lang": "Тілді таңдаңыз:",
-    "menu_title": "Басты мәзір:",
-    "btn_analyze": "🔍 Тауар талдауы",
-    "btn_trends": "📊 Трендтер",
-    "btn_ideas": "💡 Идеялар",
-    "btn_categories": "🛒 Категориялар",
-    "btn_calc": "🧮 Пайда калькуляторы",
-    "btn_desc": "✍️ Сату мәтіні",
-    "btn_premium": "⭐ Премиум аналитика",
-    "btn_change_lang": "🌐 Тілді ауыстыру",
-    "btn_back": "‹ Артқа",
-    "ask_product": "Тауар атын енгізіңіз:",
-    "unknown_cmd": "Бұл функция әлі іске қосылған жоқ.",
-}
-
-
-# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-def get_lang(user_id):
+def get_role(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT lang FROM users WHERE user_id=?", (user_id,))
+    c.execute("SELECT role FROM users WHERE user_id=?", (user_id,))
     row = c.fetchone()
     conn.close()
-    return row[0] if row and row[0] in LOCALES else "ru"
-
-
-def set_lang(user_id, lang):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
-    conn.commit()
-    conn.close()
+    return row[0] if row else "user"
 
 
 def increment_requests(user_id):
@@ -179,154 +105,166 @@ def increment_requests(user_id):
     conn.close()
 
 
-# ===== КЛАВИАТУРЫ =====
-def get_main_keyboard(lang):
+# ==========================
+#        ЯЗЫКИ
+# ==========================
+LOCALES = {
+    "ru": {
+        "choose_lang": "Выберите язык:",
+        "menu": "Главное меню:",
+        "btn_analyze": "🔍 Анализ товара (демо)",
+        "btn_trends": "📊 Тренды (демо)",
+        "btn_change_lang": "🌐 Сменить язык",
+        "btn_cabinet": "📂 Мой кабинет",
+        "btn_back": "‹ Назад",
+    },
+
+    "kg": {
+        "choose_lang": "Тилди тандаңыз:",
+        "menu": "Башкы меню:",
+        "btn_analyze": "🔍 Товар анализи (демо)",
+        "btn_trends": "📊 Тренддер (демо)",
+        "btn_change_lang": "🌐 Тилди өзгөртүү",
+        "btn_cabinet": "📂 Менин кабинетим",
+        "btn_back": "‹ Артка",
+    },
+
+    "kz": {
+        "choose_lang": "Тілді таңдаңыз:",
+        "menu": "Басты мәзір:",
+        "btn_analyze": "🔍 Тауар талдауы (демо)",
+        "btn_trends": "📊 Трендтер (демо)",
+        "btn_change_lang": "🌐 Тілді ауыстыру",
+        "btn_cabinet": "📂 Жеке кабинет",
+        "btn_back": "‹ Артқа",
+    },
+}
+
+
+def get_lang(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT lang FROM users WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else "ru"
+
+
+def set_lang(user_id, lang):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.commit()
+    conn.close()
+
+
+# ==========================
+#      КЛАВИАТУРЫ
+# ==========================
+def keyboard_main(lang):
     t = LOCALES[lang]
     return ReplyKeyboardMarkup([
         [t["btn_analyze"]],
-        [t["btn_trends"], t["btn_ideas"]],
-        [t["btn_categories"]],
-        [t["btn_calc"], t["btn_desc"]],
-        [t["btn_premium"]],
+        [t["btn_trends"]],
+        [t["btn_cabinet"]],
         [t["btn_change_lang"]],
     ], resize_keyboard=True)
 
 
-def get_back_keyboard(lang):
-    return ReplyKeyboardMarkup([[LOCALES[lang]["btn_back"]]], resize_keyboard=True)
-
-
-def get_language_keyboard():
+def keyboard_lang():
     return ReplyKeyboardMarkup([
         ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
         ["🇷🇺 Русский"],
     ], resize_keyboard=True)
 
 
-# ===== ОБРАБОТЧИКИ =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==========================
+#       ХЕНДЛЕРЫ
+# ==========================
+async def start(update: Update, context):
     user = update.effective_user
     register_user(user)
 
     if user.id == OWNER_ID:
-        make_owner(user.id)
-
-    set_lang(user.id, "ru")
+        set_role(user.id, "owner")
 
     await update.message.reply_text(
         LOCALES["ru"]["choose_lang"],
-        reply_markup=get_language_keyboard()
+        reply_markup=keyboard_lang()
     )
 
 
-async def handle_language_choice(update: Update, context):
+async def choose_lang(update: Update, context):
     user_id = update.effective_user.id
     txt = update.message.text.lower()
 
     if "кыргыз" in txt:
         lang = "kg"
-    elif "қазақ" in txt or "казақ" in txt:
+    elif "қазақ" in txt:
         lang = "kz"
     else:
         lang = "ru"
 
     set_lang(user_id, lang)
 
+    t = LOCALES[lang]
+
     await update.message.reply_text(
-        LOCALES[lang]["menu_title"],
-        reply_markup=get_main_keyboard(lang)
+        t["menu"],
+        reply_markup=keyboard_main(lang)
     )
 
 
-async def handle_buttons(update: Update, context):
+async def handle(update: Update, context):
+    user_id = update.effective_user.id
     user = update.effective_user
-    user_id = user.id
+
+    increment_requests(user_id)
+
     lang = get_lang(user_id)
     t = LOCALES[lang]
     text = update.message.text
 
-    increment_requests(user_id)
-
-    # Назад
-    if text == t["btn_back"]:
-        context.user_data["mode"] = None
-        await update.message.reply_text(t["menu_title"], reply_markup=get_main_keyboard(lang))
-        return
-
-    # Смена языка
-    if text == t["btn_change_lang"]:
-        await update.message.reply_text(t["choose_lang"], reply_markup=get_language_keyboard())
-        return
-
-    # Анализ товара
+    # демо-функции
     if text == t["btn_analyze"]:
-        context.user_data["mode"] = "analyze"
-        await update.message.reply_text(t["ask_product"], reply_markup=get_back_keyboard(lang))
+        await update.message.reply_text("🔍 Демо-анализ работает!")
         return
 
-    # Тренды
     if text == t["btn_trends"]:
-        await update.message.reply_text(get_trends(lang))
+        await update.message.reply_text("📊 Демо тренды работают!")
         return
 
-    # Идеи
-    if text == t["btn_ideas"]:
-        await update.message.reply_text(get_ideas(lang))
+    # личный кабинет (заглушка)
+    if text == t["btn_cabinet"]:
+        await update.message.reply_text(f"""
+📂 Ваш кабинет
+
+ID: {user_id}
+Username: @{user.username}
+Роль: {get_role(user_id)}
+Запросов: обновляется...
+Премиум: скоро
+""")
         return
 
-    # Категории
-    if text == t["btn_categories"]:
-        await update.message.reply_text(get_categories(lang))
+    if text == t["btn_change_lang"]:
+        await update.message.reply_text(t["choose_lang"], reply_markup=keyboard_lang())
         return
 
-    # Калькулятор
-    if text == t["btn_calc"]:
-        await update.message.reply_text(calculate_profit("data", lang))
-        return
-
-    # Описание
-    if text == t["btn_desc"]:
-        context.user_data["mode"] = "description"
-        await update.message.reply_text(t["ask_product"], reply_markup=get_back_keyboard(lang))
-        return
-
-    # Премиум
-    if text == t["btn_premium"]:
-        await update.message.reply_text(premium_info(lang))
-        return
-
-    # Ввод товара для анализа
-    if context.user_data.get("mode") == "analyze":
-        context.user_data["mode"] = None
-        await update.message.reply_text(
-            analyze_product(text, lang),
-            reply_markup=get_main_keyboard(lang)
-        )
-        return
-
-    # Ввод товара для описания
-    if context.user_data.get("mode") == "description":
-        context.user_data["mode"] = None
-        await update.message.reply_text(
-            generate_description(text, lang),
-            reply_markup=get_main_keyboard(lang)
-        )
-        return
-
-    # Остальное
-    await update.message.reply_text(t["unknown_cmd"], reply_markup=get_main_keyboard(lang))
+    await update.message.reply_text("Команда пока не поддерживается.")
 
 
-# ===== MAIN =====
+# ==========================
+#          MAIN
+# ==========================
 def main():
     init_db()
-    make_owner(OWNER_ID)
 
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex("Кыргызча|Қазақша|Русский"), handle_language_choice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+    app.add_handler(MessageHandler(filters.Regex("Кыргызча|Қазақша|Русский"), choose_lang))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
     app.run_polling()
 
