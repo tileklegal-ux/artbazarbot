@@ -19,6 +19,7 @@ DB_PATH = "database.db"
 OWNER_ID = 8389875803
 MANAGER_USERNAME = "Artbazar_support"
 
+# OpenAI client
 client = OpenAI(api_key=OPENAI_KEY)
 
 
@@ -170,7 +171,7 @@ def ai_analyze(query):
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "Ты — эксперт по товарке, маркетплейсам и нишам."},
-            {"role": "user", "content": f"Анализ товара/ниши: {query}. Дай кратко, по делу: спрос, конкуренция, рекомендации."}
+            {"role": "user", "content": f"Анализ товара/ниши: {query}. Дай кратко: спрос, конкуренция, рекомендации."}
         ],
         max_tokens=300,
     )
@@ -212,14 +213,11 @@ async def handle(update: Update, context):
 
     increment_requests(user_id)
 
-    # --- DEMO ----
     if text == t["btn_analyze"]:
         await update.message.reply_text("🔍 Демо-анализ работает!")
         return
 
-    # --- AI ANALYSIS ----
     if text == t["btn_ai"]:
-        # Проверка премиума
         if not data["premium_until"] or data["premium_until"] < time.time():
             await update.message.reply_text(t["no_premium"])
             return
@@ -228,22 +226,19 @@ async def handle(update: Update, context):
         await update.message.reply_text(t["ask_ai"])
         return
 
-    # Ответ AI
     if context.user_data.get("mode") == "ai":
         context.user_data["mode"] = None
         try:
             result = ai_analyze(text)
             await update.message.reply_text(result)
-        except Exception as e:
+        except Exception:
             await update.message.reply_text("Ошибка AI. Проверь ключ.")
         return
 
-    # Тренды
     if text == t["btn_trends"]:
         await update.message.reply_text("📊 Демо-тренды работают!")
         return
 
-    # Личный кабинет
     if text == t["btn_cabinet"]:
         premium_status = (
             format_time(data["premium_until"])
@@ -268,7 +263,6 @@ Username: @{data['username']}
         await update.message.reply_text(profile, reply_markup=keyboard_main())
         return
 
-    # Купить премиум
     if text == t["btn_buy"]:
         await update.message.reply_text(f"""
 ⭐ ТАРИФЫ PREMIUM:
@@ -287,7 +281,6 @@ Username: @{data['username']}
 """)
         return
 
-    # Акция
     if text == t["btn_sale"]:
         await update.message.reply_text(f"""
 🔥 АКЦИЯ:
