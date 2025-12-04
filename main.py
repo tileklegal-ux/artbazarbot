@@ -1,6 +1,7 @@
 import os
 import time
 import sqlite3
+from openai import OpenAI
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -12,10 +13,13 @@ from telegram.ext import (
 
 # BOT CONFIG
 TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 DB_PATH = "database.db"
 
-OWNER_ID = 8389875803  # ТИЛЕК — владелец
-MANAGER_USERNAME = "Artbazar_support"  # менеджер для проверки чеков
+OWNER_ID = 8389875803
+MANAGER_USERNAME = "Artbazar_support"
+
+client = OpenAI(api_key=OPENAI_KEY)
 
 
 # ==========================
@@ -38,17 +42,6 @@ def init_db():
             total_requests INTEGER DEFAULT 0
         )
     """)
-
-    # миграции — делаем базу устойчивой
-    def add_col(name, type_):
-        try:
-            c.execute(f"ALTER TABLE users ADD COLUMN {name} {type_}")
-        except:
-            pass
-
-    add_col("premium_until", "INTEGER")
-    add_col("role", "TEXT DEFAULT 'user'")
-    add_col("total_requests", "INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -130,33 +123,14 @@ LOCALES = {
         "choose_lang": "Выберите язык:",
         "menu": "Главное меню:",
         "btn_analyze": "🔍 Анализ товара (демо)",
+        "btn_ai": "🤖 AI-анализ (Premium)",
         "btn_trends": "📊 Тренды (демо)",
         "btn_cabinet": "📂 Мой кабинет",
         "btn_buy": "⭐ Купить Premium",
         "btn_sale": "🔥 Акция месяца",
         "btn_change_lang": "🌐 Сменить язык",
-    },
-
-    "kg": {
-        "choose_lang": "Тилди тандаңыз:",
-        "menu": "Башкы меню:",
-        "btn_analyze": "🔍 Товар анализи (демо)",
-        "btn_trends": "📊 Тренддер (демо)",
-        "btn_cabinet": "📂 Менин кабинетим",
-        "btn_buy": "⭐ Премиум алуу",
-        "btn_sale": "🔥 Айдын акциясы",
-        "btn_change_lang": "🌐 Тилди өзгөртүү",
-    },
-
-    "kz": {
-        "choose_lang": "Тілді таңдаңыз:",
-        "menu": "Басты мәзір:",
-        "btn_analyze": "🔍 Тауар талдауы (демо)",
-        "btn_trends": "📊 Трендтер (демо)",
-        "btn_cabinet": "📂 Жеке кабинет",
-        "btn_buy": "⭐ Premium сатып алу",
-        "btn_sale": "🔥 Ай акциясы",
-        "btn_change_lang": "🌐 Тілді ауыстыру",
+        "ask_ai": "Введите товар или нишу для AI-анализа:",
+        "no_premium": "⚠ Доступно только Premium. Нажмите: ⭐ Купить Premium",
     },
 }
 
@@ -170,10 +144,10 @@ def format_time(ts):
 # ==========================
 #        КЛАВИАТУРЫ
 # ==========================
-def keyboard_main(lang):
-    t = LOCALES[lang]
+def keyboard_main(lang="ru"):
+    t = LOCALES["ru"]
     return ReplyKeyboardMarkup([
-        [t["btn_analyze"]],
+        [t["btn_analyze"], t["btn_ai"]],
         [t["btn_trends"]],
         [t["btn_cabinet"]],
         [t["btn_buy"], t["btn_sale"]],
@@ -189,13 +163,27 @@ def keyboard_lang():
 
 
 # ==========================
+#      AI-АНАЛИЗ
+# ==========================
+def ai_analyze(query):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Ты — эксперт по товарке, маркетплейсам и нишам."},
+            {"role": "user", "content": f"Анализ товара/ниши: {query}. Дай кратко, по делу: спрос, конкуренция, рекомендации."}
+        ],
+        max_tokens=300,
+    )
+    return response.choices[0].message.content
+
+
+# ==========================
 #        ХЕНДЛЕРЫ
 # ==========================
 async def start(update: Update, context):
     user = update.effective_user
     register_user(user)
 
-    # владелец
     if user.id == OWNER_ID:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -210,49 +198,52 @@ async def start(update: Update, context):
 
 
 async def choose_lang(update: Update, context):
-    user_id = update.effective_user.id
-    txt = update.message.text.lower()
-
-    if "кыргыз" in txt:
-        lang = "kg"
-    elif "қазақ" in txt:
-        lang = "kz"
-    else:
-        lang = "ru"
-
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
-    conn.commit()
-    conn.close()
-
     await update.message.reply_text(
-        LOCALES[lang]["menu"],
-        reply_markup=keyboard_main(lang)
+        LOCALES["ru"]["menu"],
+        reply_markup=keyboard_main()
     )
 
 
 async def handle(update: Update, context):
-    user = update.effective_user
-    user_id = user.id
+    user_id = update.effective_user.id
+    data = get_user_data(user_id)
+    text = update.message.text
+    t = LOCALES["ru"]
 
     increment_requests(user_id)
 
-    data = get_user_data(user_id)
-    lang = data["lang"]
-    t = LOCALES[lang]
-    text = update.message.text
-
-    # ----- демо функционал -----
+    # --- DEMO ----
     if text == t["btn_analyze"]:
         await update.message.reply_text("🔍 Демо-анализ работает!")
         return
 
+    # --- AI ANALYSIS ----
+    if text == t["btn_ai"]:
+        # Проверка премиума
+        if not data["premium_until"] or data["premium_until"] < time.time():
+            await update.message.reply_text(t["no_premium"])
+            return
+
+        context.user_data["mode"] = "ai"
+        await update.message.reply_text(t["ask_ai"])
+        return
+
+    # Ответ AI
+    if context.user_data.get("mode") == "ai":
+        context.user_data["mode"] = None
+        try:
+            result = ai_analyze(text)
+            await update.message.reply_text(result)
+        except Exception as e:
+            await update.message.reply_text("Ошибка AI. Проверь ключ.")
+        return
+
+    # Тренды
     if text == t["btn_trends"]:
         await update.message.reply_text("📊 Демо-тренды работают!")
         return
 
-    # ----- личный кабинет -----
+    # Личный кабинет
     if text == t["btn_cabinet"]:
         premium_status = (
             format_time(data["premium_until"])
@@ -274,62 +265,51 @@ Username: @{data['username']}
 Премиум до: {premium_status}
 Всего запросов: {data['total_requests']}
 """
-        await update.message.reply_text(profile, reply_markup=keyboard_main(lang))
+        await update.message.reply_text(profile, reply_markup=keyboard_main())
         return
 
-    # ----- акция месяца -----
-    if text == t["btn_sale"]:
+    # Купить премиум
+    if text == t["btn_buy"]:
         await update.message.reply_text(f"""
-🔥 АКЦИЯ МЕСЯЦА
+⭐ ТАРИФЫ PREMIUM:
+
+1 месяц — 490 сом  
+6 месяцев — 1990 сом  
+1 год — 3490 сом  
+
+🔥 АКЦИЯ (до конца месяца):
 
 1 месяц — 390 сом  
 6 месяцев — 1690 сом  
-12 месяцев — 2990 сом  
-
-После оплаты отправьте чек: @{MANAGER_USERNAME}
-        """)
-        return
-
-    # ----- покупка премиума -----
-    if text == t["btn_buy"]:
-        await update.message.reply_text(f"""
-⭐ Premium возможности:
-
-• Полный анализ товара  
-• Подбор ниши  
-• Проверка спроса  
-• Анализ конкурентов  
-• Идеи товаров  
-• Тренды  
-• Рекомендации по рекламе  
-• Личный менеджер
-
-💰 Цены:
-1 месяц — 490 сом  
-6 месяцев — 1990 сом  
-12 месяцев — 3490 сом  
-
-🔥 Сейчас действует акция! (Смотри кнопку Акция месяца)
+1 год — 2990 сом  
 
 После оплаты отправьте чек менеджеру: @{MANAGER_USERNAME}
-        """)
+""")
         return
 
-    # ----- смена языка -----
-    if text == t["btn_change_lang"]:
-        await update.message.reply_text(t["choose_lang"], reply_markup=keyboard_lang())
+    # Акция
+    if text == t["btn_sale"]:
+        await update.message.reply_text(f"""
+🔥 АКЦИЯ:
+
+1 месяц — 390 сом  
+6 месяцев — 1690 сом  
+1 год — 2990 сом  
+
+Отправь чек менеджеру: @{MANAGER_USERNAME}
+""")
         return
 
     await update.message.reply_text("Команда пока не поддерживается.")
 
 
 # ==========================
-#   ADMIN: ДАТЬ ПРЕМИУМ
+#       ADMIN — GIVE PREMIUM
 # ==========================
-async def givepremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+async def givepremium(update: Update, context):
+    user_id = update.effective_user.id
 
-    if user.id != OWNER_ID:
+    if user_id != OWNER_ID:
         await update.message.reply_text("Нет доступа.")
         return
 
@@ -343,7 +323,7 @@ async def givepremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     until = set_premium(target_id, days)
 
     await update.message.reply_text(
-        f"Премиум выдан!\nUser: {target_id}\nДней: {days}\nДо: {format_time(until)}"
+        f"Премиум выдан пользователю {target_id} на {days} дней.\nДо: {format_time(until)}"
     )
 
 
