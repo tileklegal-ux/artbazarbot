@@ -12,11 +12,15 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DB_PATH = "database.db"
 
-# ----- ЯЗЫКОВЫЕ ПАКЕТЫ -----
+# =========================
+#      ЯЗЫКОВЫЕ ПАКЕТЫ
+# =========================
+
 LOCALES = {
     "ru": {
         "choose_lang": "Выберите язык:",
         "menu_title": "Главное меню:",
+
         "btn_analyze": "🔍 Анализ товара",
         "btn_trends": "📊 Тренды",
         "btn_ideas": "💡 Идеи",
@@ -24,11 +28,13 @@ LOCALES = {
         "btn_calc": "🧮 Калькулятор прибыли",
         "btn_desc": "✍️ Описание для продажи",
         "btn_premium": "⭐ Премиум аналитика",
-        "unknown_cmd": "Пока я умею только выбирать язык и показывать меню. Остальные функции подключим поэтапно.",
+
+        "unknown_cmd": "Этот раздел скоро будет готов.",
     },
     "kg": {
         "choose_lang": "Тилди тандаңыз:",
         "menu_title": "Башкы меню:",
+
         "btn_analyze": "🔍 Товар анализи",
         "btn_trends": "📊 Тренддер",
         "btn_ideas": "💡 Идеялар",
@@ -36,11 +42,13 @@ LOCALES = {
         "btn_calc": "🧮 Пайда эсептегич",
         "btn_desc": "✍️ Сатуу тексти",
         "btn_premium": "⭐ Премиум аналитика",
-        "unknown_cmd": "Азырынча мен тилди тандоону жана менюну гана көрсөтөм. Калган функцияларды акырындык менен кошобуз.",
+
+        "unknown_cmd": "Бул бөлүм жакында даяр болот.",
     },
     "kz": {
         "choose_lang": "Тілді таңдаңыз:",
         "menu_title": "Басты мәзір:",
+
         "btn_analyze": "🔍 Тауар талдауы",
         "btn_trends": "📊 Трендтер",
         "btn_ideas": "💡 Идеялар",
@@ -48,12 +56,16 @@ LOCALES = {
         "btn_calc": "🧮 Пайда калькуляторы",
         "btn_desc": "✍️ Сату мәтіні",
         "btn_premium": "⭐ Премиум аналитика",
-        "unknown_cmd": "Әзірге мен тек тілді таңдау және мәзір көрсетуді білемін. Қалған функцияларды кезең-кезеңімен қосамыз.",
+
+        "unknown_cmd": "Бұл бөлім жақында дайын болады.",
     },
 }
 
 
-# ----- БАЗА ДАННЫХ (SQLite) -----
+# =========================
+#        БАЗА ДАННЫХ
+# =========================
+
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -90,14 +102,25 @@ def get_lang(user_id: int) -> str:
     c.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if row and row[0] in LOCALES:
-        return row[0]
-    return "ru"  # по умолчанию русский
+    return row[0] if row and row[0] in LOCALES else "ru"
 
 
-# ----- КЛАВИАТУРЫ -----
+# =========================
+#        КЛАВИАТУРЫ
+# =========================
+
+def get_language_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
+            ["🇷🇺 Русский"]
+        ],
+        resize_keyboard=True
+    )
+
+
 def get_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
-    t = LOCALES.get(lang, LOCALES["ru"])
+    t = LOCALES[lang]
     keyboard = [
         [t["btn_analyze"]],
         [t["btn_trends"], t["btn_ideas"]],
@@ -108,36 +131,31 @@ def get_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def get_language_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
-        ["🇷🇺 Русский"],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+def get_back_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
 
 
-# ----- ХЕНДЛЕРЫ -----
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    user_id = user.id
+# =========================
+#         ХЕНДЛЕРЫ
+# =========================
 
-    # сразу регистрируем юзера с русским по умолчанию
-    set_lang(user_id, "ru")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    set_lang(user_id, "ru")  # русский по умолчанию
 
     await update.message.reply_text(
         LOCALES["ru"]["choose_lang"],
-        reply_markup=get_language_keyboard(),
+        reply_markup=get_language_keyboard()
     )
 
 
-async def handle_language_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    user_id = user.id
-    text = (update.message.text or "").lower()
+async def handle_language_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
+    user_id = update.effective_user.id
 
     if "кыргыз" in text:
         lang = "kg"
-    elif "қазақ" in text or "казақ" in text:
+    elif "қазақ" in text or "казах" in text:
         lang = "kz"
     else:
         lang = "ru"
@@ -147,43 +165,73 @@ async def handle_language_choice(update: Update, context: ContextTypes.DEFAULT_T
     t = LOCALES[lang]
     await update.message.reply_text(
         t["menu_title"],
-        reply_markup=get_main_keyboard(lang),
+        reply_markup=get_main_keyboard(lang)
     )
 
 
-async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_lang(user_id)
     t = LOCALES[lang]
+    text = update.message.text
 
+    # === КНОПКА "НАЗАД" ===
+    if text == "⬅️ Назад":
+        await update.message.reply_text(
+            t["menu_title"],
+            reply_markup=get_main_keyboard(lang)
+        )
+        return
+
+    # === РАЗДЕЛЫ МЕНЮ ===
+    sections = {
+        t["btn_analyze"]: "🔍 Анализ товара скоро будет доступен.",
+        t["btn_trends"]: "📊 Тренды рынка — в разработке.",
+        t["btn_ideas"]: "💡 Подборка идей товаров — скоро.",
+        t["btn_categories"]: "🛒 Категории товаров — скоро.",
+        t["btn_calc"]: "🧮 Калькулятор прибыли — скоро.",
+        t["btn_desc"]: "✍️ Генератор описаний — скоро.",
+        t["btn_premium"]: "⭐ Премиум аналитика — будет доступна по подписке.",
+    }
+
+    if text in sections:
+        await update.message.reply_text(
+            sections[text],
+            reply_markup=get_back_keyboard(lang)
+        )
+        return
+
+    # неизвестная команда
     await update.message.reply_text(
         t["unknown_cmd"],
-        reply_markup=get_main_keyboard(lang),
+        reply_markup=get_main_keyboard(lang)
     )
 
 
-def main() -> None:
-    init_db()
+# =========================
+#           MAIN
+# =========================
 
+def main():
+    init_db()
     app = Application.builder().token(TOKEN).build()
 
-    # /start
     app.add_handler(CommandHandler("start", start))
 
     # выбор языка
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("Кыргызча|Қазақша|Русский"),
-            handle_language_choice,
-        )
-    )
+    app.add_handler(MessageHandler(
+        filters.Regex("Кыргызча|Қазақша|Русский"),
+        handle_language_choice,
+    ))
 
-    # все остальное пока ловим как "пока не реализовано"
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown))
+    # логика меню
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_main_menu
+    ))
 
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-    # touch
