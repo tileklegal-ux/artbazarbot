@@ -1,21 +1,18 @@
-# main.py
-
 import asyncio
 from aiogram import Bot, Dispatcher
-from config import TOKEN
-from database import init_db
+from config import BOT_TOKEN
 from handlers import router
+from database import init_db
 
 
 async def main():
     init_db()
 
-    bot = Bot(token=TOKEN)
+    bot = Bot(BOT_TOKEN)
     dp = Dispatcher()
 
     dp.include_router(router)
 
-    print("Bot started…")
     await dp.start_polling(bot)
 
 
