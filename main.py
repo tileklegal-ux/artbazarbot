@@ -1,6 +1,8 @@
 import os
 import time
 import sqlite3
+from typing import Optional
+
 from openai import OpenAI
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -18,6 +20,11 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
+if not TOKEN:
+    raise RuntimeError("BOT_TOKEN не задан в переменных окружения")
+
+client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
+
 DB_PATH = "database.db"
 
 # Владелец
@@ -28,7 +35,12 @@ OWNER_USERNAME = "ihaariss"
 DEFAULT_MANAGER_ID = 571499876
 DEFAULT_MANAGER_USERNAME = "Artbazar_support"
 
-client = OpenAI(api_key=OPENAI_KEY)
+# Порт и URL для webhook (Fly.io)
+PORT = int(os.getenv("PORT", "8080"))
+APP_URL = os.getenv("APP_URL")
+if not APP_URL:
+    app_name = os.getenv("FLY_APP_NAME", "artbazarbot")
+    APP_URL = f"https://{app_name}.fly.dev"
 
 
 # ==========================
@@ -39,7 +51,8 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -51,7 +64,8 @@ def init_db():
             last_active INTEGER,
             total_requests INTEGER DEFAULT 0
         )
-    """)
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -61,20 +75,18 @@ def register_user(user):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    now = int(time.time())
+    c.execute(
+        """
         INSERT INTO users (user_id, username, first_name, created_at, last_active)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             username = excluded.username,
             first_name = excluded.first_name,
             last_active = excluded.last_active
-    """, (
-        user.id,
-        user.username,
-        user.first_name,
-        int(time.time()),
-        int(time.time())
-    ))
+        """,
+        (user.id, user.username, user.first_name, now, now),
+    )
     conn.commit()
 
     # Назначаем роли владельцу и базовому менеджеру
@@ -87,14 +99,17 @@ def register_user(user):
     conn.close()
 
 
-def get_user_data(user_id):
+def get_user_data(user_id) -> Optional[dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT user_id, username, first_name, role, lang,
                premium_until, created_at, last_active, total_requests
         FROM users WHERE user_id=?
-    """, (user_id,))
+        """,
+        (user_id,),
+    )
     row = c.fetchone()
     conn.close()
 
@@ -117,11 +132,14 @@ def get_user_data(user_id):
 def increment_requests(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         UPDATE users SET total_requests = total_requests + 1,
                          last_active = ?
         WHERE user_id=?
-    """, (int(time.time()), user_id))
+        """,
+        (int(time.time()), user_id),
+    )
     conn.commit()
     conn.close()
 
@@ -138,7 +156,10 @@ def set_premium(user_id, days):
     premium_until = int(time.time()) + days * 24 * 3600
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (premium_until, user_id))
+    c.execute(
+        "UPDATE users SET premium_until=? WHERE user_id=?",
+        (premium_until, user_id),
+    )
     conn.commit()
     conn.close()
     return premium_until
@@ -152,7 +173,10 @@ def get_stats():
     c.execute("SELECT COUNT(*) FROM users")
     total_users = c.fetchone()[0]
 
-    c.execute("SELECT COUNT(*) FROM users WHERE premium_until IS NOT NULL AND premium_until>?", (now,))
+    c.execute(
+        "SELECT COUNT(*) FROM users WHERE premium_until IS NOT NULL AND premium_until>?",
+        (now,),
+    )
     premium_users = c.fetchone()[0]
 
     c.execute("SELECT COUNT(*) FROM users WHERE role='manager'")
@@ -170,18 +194,6 @@ def get_stats():
         "managers": managers,
         "active_24h": active_24h,
     }
-
-
-def get_all_managers():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT user_id, username, first_name
-        FROM users WHERE role='manager'
-    """)
-    rows = c.fetchall()
-    conn.close()
-    return rows
 
 
 # ==========================
@@ -203,20 +215,13 @@ LOCALES = {
         "btn_buy": "⭐ Купить Premium",
         "btn_sale": "🔥 Акция месяца",
         "btn_change_lang": "🌐 Сменить язык",
-
         # Менеджер
-        "btn_manager_menu": "👨‍💼 Менеджер-меню",
         "btn_manager_give": "⭐ Выдать премиум",
         "btn_manager_stats": "📊 Статистика (24 ч)",
-
         # Владелец
-        "btn_owner_menu": "👑 Админ-панель",
         "btn_owner_stats": "📊 Полная статистика",
         "btn_owner_managers": "👨‍💼 Менеджеры",
-        "btn_owner_add_manager": "➕ Добавить менеджера",
-        "btn_owner_remove_manager": "➖ Удалить менеджера",
-        "btn_owner_broadcast": "📨 Рассылка (в разработке)",
-
+        "not_allowed": "У вас нет доступа к этой команде.",
         "ask_niche": (
             "Расскажи, какой у тебя опыт, стартовый бюджет, страна/город и где хочешь продавать "
             "(маркетплейс, Instagram, офлайн и т.п.).\n\n"
@@ -244,12 +249,10 @@ LOCALES = {
         ),
         "ask_ai": "Введите товар или нишу для глубокого AI-анализа (Premium):",
         "no_premium": "⚠ Доступно только Premium. Нажмите: ⭐ Купить Premium",
-
         "manager_give_prompt": (
             "Отправь в одном сообщении: <code>USER_ID КОЛИЧЕСТВО_ДНЕЙ</code>\n"
             "Например: <code>123456789 30</code>"
         ),
-        "not_allowed": "У вас нет доступа к этой команде.",
     },
 }
 
@@ -275,17 +278,14 @@ def keyboard_user(lang: str = "ru"):
             [t["btn_buy"], t["btn_sale"]],
             [t["btn_change_lang"]],
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
 
 def keyboard_lang():
     return ReplyKeyboardMarkup(
-        [
-            ["🇰🇬 Кыргызча", "🇰🇿 Қазақша"],
-            ["🇷🇺 Русский"],
-        ],
-        resize_keyboard=True
+        [["🇰🇬 Кыргызча", "🇰🇿 Қазақша"], ["🇷🇺 Русский"]],
+        resize_keyboard=True,
     )
 
 
@@ -297,7 +297,7 @@ def keyboard_manager():
             [t["btn_cabinet"]],
             [t["btn_change_lang"]],
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
 
@@ -310,7 +310,7 @@ def keyboard_owner():
             [t["btn_cabinet"]],
             [t["btn_change_lang"]],
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
 
@@ -319,8 +319,8 @@ def keyboard_owner():
 # ==========================
 
 def _call_openai(system_prompt: str, user_prompt: str, max_tokens: int = 600) -> str:
-    if not OPENAI_KEY:
-        return "⚠ AI временно недоступен: не настроен OPENAI_API_KEY."
+    if client is None:
+        return "⚠ OpenAI ключ не настроен. Обратись к владельцу бота."
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -455,15 +455,20 @@ def build_margin_response(cost, price, extra):
     roi = (profit / cost * 100) if cost > 0 else 0
 
     def fmt(x):
-        return str(round(x, 2)).rstrip("0").rstrip(".") if isinstance(x, float) else str(x)
+        return (
+            str(round(x, 2)).rstrip("0").rstrip(".")
+            if isinstance(x, float)
+            else str(x)
+        )
 
-    verdict = "🟡 Средняя маржа, можно тестировать, но смотри по конкуренции."
     if profit <= 0:
         verdict = "🔴 Маржа отрицательная или нулевая — в таком виде товар невыгоден."
     elif margin_percent >= 30 and roi >= 50:
         verdict = "🟢 Хорошая маржа, товар перспективный."
     elif margin_percent < 15:
         verdict = "🟠 Маржа слабая. Нужна более высокая цена или более дешёвая закупка."
+    else:
+        verdict = "🟡 Средняя маржа, можно тестировать, но смотри по конкуренции."
 
     text = f"""
 📊 <b>Расчёт маржи</b>
@@ -500,25 +505,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data["role"] == "owner":
         await update.message.reply_text(
             "Ты владелец бота. Клиентское меню — ниже. Для админ-панели используй команду /admin.",
-            reply_markup=keyboard_user()
+            reply_markup=keyboard_user(),
         )
     elif data["role"] == "manager":
         await update.message.reply_text(
             "Вы менеджер. Для работы с премиумом используйте /admin.",
-            reply_markup=keyboard_user()
+            reply_markup=keyboard_user(),
         )
     else:
         await update.message.reply_text(
             LOCALES["ru"]["choose_lang"],
-            reply_markup=keyboard_lang()
+            reply_markup=keyboard_lang(),
         )
 
 
 async def choose_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # пока просто показываем русское меню
     await update.message.reply_text(
-        LOCALES["ru"]["menu"],
-        reply_markup=keyboard_user()
+        LOCALES["ru"]["menu"], reply_markup=keyboard_user()
     )
 
 
@@ -531,15 +534,19 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data["role"] == "owner":
-        await update.message.reply_text("👑 Админ-панель владельца", reply_markup=keyboard_owner())
+        await update.message.reply_text(
+            "👑 Админ-панель владельца", reply_markup=keyboard_owner()
+        )
     else:
-        await update.message.reply_text("👨‍💼 Менеджер-меню", reply_markup=keyboard_manager())
+        await update.message.reply_text(
+            "👨‍💼 Менеджер-меню", reply_markup=keyboard_manager()
+        )
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-    text = (update.message.text or "").strip()
+    text = update.message.text or ""
     t = LOCALES["ru"]
 
     data = get_user_data(user_id)
@@ -552,16 +559,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = data["role"]
     mode = context.user_data.get("mode")
 
-    # ----------- режимы менеджера: выдача премиума ----------
+    # ====== режим выдачи премиума менеджером/владельцем ======
     if mode == "manager_givepremium" and role in ("manager", "owner"):
         context.user_data["mode"] = None
         try:
-            parts = text.split()
+            parts = text.strip().split()
             target_id = int(parts[0])
             days = int(parts[1])
         except Exception:
             await update.message.reply_text(
-                "Неверный формат. Пример: <code>123456789 30</code>", parse_mode="HTML"
+                "Неверный формат. Пример: <code>123456789 30</code>",
+                parse_mode="HTML",
             )
             return
 
@@ -571,7 +579,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ---------- режим калькулятора маржи ----------
+    # ====== режим калькулятора маржи ======
     if mode == "margin":
         step = context.user_data.get("margin_step")
 
@@ -635,14 +643,16 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result_text, parse_mode="HTML")
             return
 
-    # ---------- AI режимы ----------
+    # ====== AI режимы ======
     if mode == "niche":
         context.user_data["mode"] = None
         try:
             result = ai_niche(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text("Не удалось проанализировать нишу. Проверь OpenAI-ключ.")
+            await update.message.reply_text(
+                "Не удалось проанализировать нишу. Проверь OpenAI-ключ."
+            )
         return
 
     if mode == "market":
@@ -660,4 +670,5 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = ai_competitors(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text("Ошибка при ана
+            await update.message.reply_text(
+            
