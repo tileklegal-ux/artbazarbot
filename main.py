@@ -1,42 +1,57 @@
 import os
+import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEBHOOK_HOST, WEBHOOK_PATH
 from handlers import router
-from database import init_db
 
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://artbazarbot.fly.dev/webhook")
-WEBHOOK_PATH = "/webhook"
+# --------------------------
+#  Создание приложения
+# --------------------------
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+dp.include_router(router)
 
 
-async def on_startup(app: web.Application):
-    bot: Bot = app["bot"]
-    await bot.set_webhook(WEBHOOK_URL)
-    print(f"Webhook set to {WEBHOOK_URL}")
+# --------------------------
+#  Обработчик webhook
+# --------------------------
+
+async def handle_webhook(request):
+    update_data = await request.json()
+    await dp.feed_raw_update(bot, update_data)
+    return web.Response(text="OK")
 
 
-async def on_shutdown(app: web.Application):
-    bot: Bot = app["bot"]
-    await bot.delete_webhook()
+# --------------------------
+#  Старт приложения
+# --------------------------
+
+async def on_startup(app):
+    webhook_url = WEBHOOK_HOST + WEBHOOK_PATH
+
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(url=webhook_url)
+
+    print(f"Webhook установлен: {webhook_url}")
+
+
+async def on_shutdown(app):
     await bot.session.close()
-    print("Webhook deleted and bot session closed")
+    print("Bot session closed")
 
 
-async def create_app() -> web.Application:
-    init_db()
+# --------------------------
+#  Запуск веб-сервера
+# --------------------------
 
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher()
-    dp.include_router(router)
-
+def create_app():
     app = web.Application()
-    app["bot"] = bot
-
-    SimpleRequestHandler(dp, bot).register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
+    app.add_routes([web.post(WEBHOOK_PATH, handle_webhook)])
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
@@ -44,6 +59,10 @@ async def create_app() -> web.Application:
     return app
 
 
+# --------------------------
+#  Точка входа
+# --------------------------
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    web.run_app(create_app(), host="0.0.0.0", port=port)
+    app = create_app()
+    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
