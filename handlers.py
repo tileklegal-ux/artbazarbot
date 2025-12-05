@@ -1,203 +1,124 @@
 import logging
 from aiogram import Router, F
 from aiogram.types import Message
-from aiogram.filters import Command
-from openai import OpenAI
+from aiogram.fsm.context import FSMContext
 
-from database import set_user_language, get_user_language
 from keyboards import main_menu_keyboard
-from config import OPENAI_API_KEY, OPENAI_MODEL
+from database import set_user_language, get_user_language
+from openai_api import analyze_market, pick_niche, recommendations
 
 router = Router()
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# ----------------------------
-#  SYSTEM PROMPTS
-# ----------------------------
-
-SYSTEM_PROMPT_RU = """
-Ты — профессиональный AI-аналитик для предпринимателей.
-Отвечай простым, живым человеческим языком, но уверенно и по делу.
-Не используй списки, маркдаун, символы ### или точки перед строками.
-Пиши абзацами.
-
-Структура ответа должна быть естественной, но содержать:
-Спрос — что происходит на рынке с товаром.
-Конкуренция — кто продаёт и насколько рынок плотный.
-Маржа — насколько товар перспективен по прибыли.
-Рекомендации — что бы ты посоветовал предпринимателю.
-
-Избегай чрезмерных терминов. Пиши так, чтобы предпринимателю было понятно и полезно.
-"""
-
-SYSTEM_PROMPT_KG = """
-Сен — тажрыйбалуу AI бизнес-аналитиксиң.
-Жоопторуң түшүнүктүү, кесипкөйлүккө жакын жана ишенимдүү болсун.
-Тизмектерди, маркдаунду, ### белгилерин колдонбо.
-Текстти кадимки абзацтар менен жаз.
-
-Жооптор төмөнкү маанилерди камтысын:
-Суроо-талап — бул товарга кызыгуу деңгээли.
-Атаандаштык — рынокто кимдер сатат жана күчү кандай.
-Маржа — пайда табуу мүмкүнчүлүгү.
-Сунуштар — сатуучуга пайдалуу кеңештер.
-
-Сабырдуу, таза жана ишкердик стилде сүйлө.
-"""
-
-SYSTEM_PROMPT_KZ = """
-Сен — кәсіпкерлерге арналған кәсіби AI-талдаушысың.
-Жауаптарың байсалды, түсінікті және іскерлік стильде болсын.
-Маркерлерді, тізімдерді, markdown немесе ### қолданба.
-Мәтінді абзацтармен жаз.
-
-Талдауда келесі бағыттар табиғи түрде көрінсін:
-Сұраныс — тауарға қызығушылық деңгейі.
-Бәсекелестік — нарықта кімдер сатады және олардың күші.
-Маржа — пайда алу мүмкіндігі.
-Ұсыныстар — кәсіпкерге нақты кеңес.
-
-Сабырлы, сенімді және кәсіби стильді сақта.
-"""
-
-# ------------------------------------
-#  Выбор system prompt по языку
-# ------------------------------------
-def get_prompt(lang):
-    if lang == "kg":
-        return SYSTEM_PROMPT_KG
-    if lang == "kz":
-        return SYSTEM_PROMPT_KZ
-    return SYSTEM_PROMPT_RU
 
 
-# ------------------------------------
-#  Старт
-# ------------------------------------
-@router.message(Command("start"))
+# ---------------------------
+#  START
+# ---------------------------
+@router.message(F.text == "/start")
 async def start_cmd(message: Message):
-    user_id = message.from_user.id
-    set_user_language(user_id, "ru")  # по умолчанию русский
-
     await message.answer(
-        "Добро пожаловать в ArtBazar AI — ассистент для продавцов онлайн.\nВыберите язык:",
-        reply_markup=main_menu_keyboard(lang="choose")
+        "Выберите язык / Тилди тандаңыз / Тілді таңдаңыз:",
+        reply_markup=main_menu_keyboard("lang")
+    )
+
+    # Покажем язык-кнопки отдельно
+    await message.answer(
+        "Русский 🇷🇺\nКыргызча 🇰🇬\nҚазақша 🇰🇿"
     )
 
 
-# ------------------------------------
-#  Выбор языка
-# ------------------------------------
+# ---------------------------
+#  LANGUAGE SELECTION
+# ---------------------------
 @router.message(F.text.in_(["Русский 🇷🇺", "Кыргызча 🇰🇬", "Қазақша 🇰🇿"]))
-async def choose_language(message: Message):
-    lang_map = {
-        "Русский 🇷🇺": "ru",
-        "Кыргызча 🇰🇬": "kg",
-        "Қазақша 🇰🇿": "kz",
-    }
-
-    lang = lang_map.get(message.text)
-    set_user_language(message.from_user.id, lang)
-
-    texts = {
-        "ru": "Язык сохранён. Чем могу помочь?",
-        "kg": "Тил сакталды. Кантип жардам берем?",
-        "kz": "Тіл сақталды. Қалай көмектесе аламын?"
-    }
-
-    await message.answer(texts[lang], reply_markup=main_menu_keyboard(lang))
-
-
-# ------------------------------------
-#  Команды меню: АИ анализ
-# ------------------------------------
-@router.message(F.text == "Анализ рынка 📊")
-async def ask_market(message: Message):
-    lang = get_user_language(message.from_user.id)
-
-    prompts = {
-        "ru": "Опиши товар или нишу, для которой нужен анализ рынка.",
-        "kg": "Анализ кылыш үчүн товар же нишени жазыңыз.",
-        "kz": "Нарықтық талдау қажет тауарды немесе нишаны жазыңыз."
-    }
-
-    await message.answer(prompts[lang])
-
-
-@router.message(F.text == "Подбор ниши 🎯")
-async def ask_niche(message: Message):
-    lang = get_user_language(message.from_user.id)
-
-    prompts = {
-        "ru": "Опиши, чем хочешь заниматься. Бот оценит нишу.",
-        "kg": "Эмне менен алектенгиңиз келет? Ниша талданып берилет.",
-        "kz": "Қандай бағытпен айналысқың келеді? Ниша талданып беріледі."
-    }
-
-    await message.answer(prompts[lang])
-
-
-@router.message(F.text == "Калькулятор маржи 💰")
-async def profit_stub(message: Message):
-    lang = get_user_language(message.from_user.id)
-    
-    texts = {
-        "ru": "Калькулятор маржи скоро будет доступен.",
-        "kg": "Маржа калькулятору жакында кошулат.",
-        "kz": "Маржа калькуляторы жақында қосылады."
-    }
-
-    await message.answer(texts[lang])
-
-
-@router.message(F.text == "Рекомендации ⚡")
-async def ask_recommend(message: Message):
-    lang = get_user_language(message.from_user.id)
-
-    prompts = {
-        "ru": "Расскажи о товаре и ситуации, дам рекомендации.",
-        "kg": "Товар тууралуу жазыңыз, сунуштарды берем.",
-        "kz": "Тауар мен жағдайды сипатта, кеңес беремін."
-    }
-
-    await message.answer(prompts[lang])
-
-
-# ------------------------------------
-#  ОБРАБОТКА ВСЕГО ОСТАЛЬНОГО — OPENAI
-# ------------------------------------
-@router.message()
-async def ai_answer(message: Message):
+async def set_language(message: Message):
+    lang = "ru" if "Русский" in message.text else "kg" if "Кыргызча" in message.text else "kz"
     user_id = message.from_user.id
-    lang = get_user_language(user_id) or "ru"
 
-    prompt = get_prompt(lang)
+    set_user_language(user_id, lang)
+    logging.info(f"User {user_id} set language: {lang}")
 
-    try:
-        await message.answer(
-            {
-                "ru": "Думаю над ответом…",
-                "kg": "Жооп даярдалып жатат…",
-                "kz": "Жауап дайындалып жатыр…"
-            }[lang]
-        )
+    if lang == "ru":
+        await message.answer("Язык сохранён. Чем займёмся?", reply_markup=main_menu_keyboard("ru"))
+    elif lang == "kg":
+        await message.answer("Тилиңиз сакталды. Эмне жасайбыз?", reply_markup=main_menu_keyboard("kg"))
+    else:
+        await message.answer("Тіліңіз сақталды. Не істейміз?", reply_markup=main_menu_keyboard("kz"))
 
-        completion = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": message.text}
-            ]
-        )
 
-        await message.answer(completion.choices[0].message["content"])
+# ---------------------------
+#  ANALYZE MARKET
+# ---------------------------
+@router.message(F.text.contains("Анализ рынка"))
+async def ask_market(message: Message):
+    await message.answer("Опиши товар или нишу, для которой нужен анализ рынка.")
+    # сохраняем состояние
+    await router.state.set_state("await_market")
 
-    except Exception as e:
-        logging.error(e)
-        await message.answer(
-            {
-                "ru": "Ошибка при обработке запроса.",
-                "kg": "Ката кетти.",
-                "kz": "Қате орын алды."
-            }[lang]
-        )
+
+@router.message(router.state == "await_market")
+async def process_market(message: Message, state: FSMContext):
+    text = message.text
+    await message.answer("Думаю над ответом… Это может занять несколько секунд ⏳")
+
+    result = await analyze_market(text)
+
+    # очищаем состояние
+    await state.clear()
+
+    await message.answer(result)
+
+
+# ---------------------------
+#  PICK NICHE
+# ---------------------------
+@router.message(F.text.contains("Подбор ниши"))
+async def ask_niche(message: Message):
+    await message.answer("Опиши, чем хочешь заниматься. Я оценю нишу.")
+    await router.state.set_state("await_niche")
+
+
+@router.message(router.state == "await_niche")
+async def process_niche(message: Message, state: FSMContext):
+    text = message.text
+    await message.answer("Секунду, думаю… ⏳")
+
+    result = await pick_niche(text)
+
+    await state.clear()
+    await message.answer(result)
+
+
+# ---------------------------
+#  МARGIN CALCULATOR (пока заглушка)
+# ---------------------------
+@router.message(F.text.contains("Калькулятор маржи"))
+async def margin_stub(message: Message):
+    await message.answer("Калькулятор маржи скоро будет доступен в следующем обновлении.")
+
+
+# ---------------------------
+#  RECOMMENDATIONS
+# ---------------------------
+@router.message(F.text.contains("Рекомендации"))
+async def ask_recommend(message: Message):
+    await message.answer("Расскажи о товаре и ситуации — дам рекомендации по продажам.")
+    await router.state.set_state("await_recommend")
+
+
+@router.message(router.state == "await_recommend")
+async def process_recommend(message: Message, state: FSMContext):
+    text = message.text
+    await message.answer("Обрабатываю запрос… ⏳")
+
+    result = await recommendations(text)
+
+    await state.clear()
+    await message.answer(result)
+
+
+# ---------------------------
+#  PREMIUM (заглушка)
+# ---------------------------
+@router.message(F.text.contains("Премиум"))
+async def premium(message: Message):
+    await message.answer("Премиум-функции в разработке. Позже здесь появятся крутые инструменты.")
