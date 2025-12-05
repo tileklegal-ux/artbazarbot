@@ -4,6 +4,7 @@ app = "artbazarbot"
 
 [env]
 PORT = "8080"
+WEBHOOK_URL = "https://artbazarbot.fly.dev/webhook"
 
 [[services]]
 protocol = "tcp"
