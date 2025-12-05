@@ -1,68 +1,52 @@
-import os
 import asyncio
-from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
 
-from config import BOT_TOKEN, WEBHOOK_HOST, WEBHOOK_PATH
+from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PATH
 from handlers import router
 
+async def on_startup(bot: Bot):
+    # Устанавливаем webhook при старте
+    await bot.set_webhook(WEBHOOK_URL)
+    print("WEBHOOK SET:", WEBHOOK_URL)
 
-# --------------------------
-#  Создание приложения
-# --------------------------
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-dp.include_router(router)
-
-
-# --------------------------
-#  Обработчик webhook
-# --------------------------
+async def on_shutdown(bot: Bot):
+    await bot.delete_webhook()
+    print("WEBHOOK DELETED")
 
 async def handle_webhook(request):
-    update_data = await request.json()
-    await dp.feed_raw_update(bot, update_data)
+    bot: Bot = request.app["bot"]
+    dp: Dispatcher = request.app["dp"]
+    update = await request.json()
+    await dp.feed_update(bot, update)
     return web.Response(text="OK")
 
+async def main():
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
 
-# --------------------------
-#  Старт приложения
-# --------------------------
-
-async def on_startup(app):
-    webhook_url = WEBHOOK_HOST + WEBHOOK_PATH
-
-    await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_webhook(url=webhook_url)
-
-    print(f"Webhook установлен: {webhook_url}")
-
-
-async def on_shutdown(app):
-    await bot.session.close()
-    print("Bot session closed")
-
-
-# --------------------------
-#  Запуск веб-сервера
-# --------------------------
-
-def create_app():
+    # HTTP-сервер для Telegram webhook
     app = web.Application()
-    app.add_routes([web.post(WEBHOOK_PATH, handle_webhook)])
+    app["bot"] = bot
+    app["dp"] = dp
 
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
+    app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-    return app
+    # События старта и выключения
+    await on_startup(bot)
 
+    # Запуск aiohttp сервера
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=8080)
+    await site.start()
 
-# --------------------------
-#  Точка входа
-# --------------------------
+    print("BOT IS RUNNING via WEBHOOK...")
+
+    # Бесконечное ожидание
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    app = create_app()
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    asyncio.run(main())
