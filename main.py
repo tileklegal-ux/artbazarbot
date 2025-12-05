@@ -1,25 +1,21 @@
+# main.py
+
 import asyncio
 from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
-
+from config import TOKEN
 from database import init_db
-from handlers import register_handlers
-
-BOT_TOKEN = "твoй_бот_токен_сюда"
+from handlers import router
 
 
 async def main():
-    # Инициализация базы
     init_db()
 
-    # Инициализация бота
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
 
-    # Регистрация всех хендлеров
-    register_handlers(dp)
+    dp.include_router(router)
 
-    print("Bot started...")
+    print("Bot started…")
     await dp.start_polling(bot)
 
 
