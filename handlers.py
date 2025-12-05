@@ -1,55 +1,106 @@
-from aiogram import Router, types
-from aiogram.filters import Command
+from aiogram import Router, F
+from aiogram.filters import CommandStart
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from database import get_user_language, set_user_language
-from messages_ru import texts as ru
-from messages_kz import texts as kz
-from messages_kg import texts as kg
+from utils import get_text
+from ai_service import analyze_market, analyze_niche, give_recommendations
 
 router = Router()
 
-LANGS = {"ru": ru, "kz": kz, "kg": kg}
+LANG_CALLBACK_PREFIX = "lang_"
+user_states: dict[int, str] = {}  # user_id -> "market" / "niche" / "recommend"
 
-@router.message(Command("start"))
-async def start(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="Русский 🇷🇺"),
-             types.KeyboardButton(text="Қазақша 🇰🇿"),
-             types.KeyboardButton(text="Кыргызча 🇰🇬")]
-        ],
-        resize_keyboard=True
+
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Русский 🇷🇺", callback_data=f"{LANG_CALLBACK_PREFIX}ru")
+    kb.button(text="Кыргызча 🇰🇬", callback_data=f"{LANG_CALLBACK_PREFIX}kg")
+    kb.button(text="Қазақша 🇰🇿", callback_data=f"{LANG_CALLBACK_PREFIX}kz")
+    kb.adjust(1)
+
+    await message.answer(
+        "Выберите язык / Тилди тандаңыз / Тілді таңдаңыз:",
+        reply_markup=kb.as_markup(),
     )
-    await message.answer("Выберите язык / Тілді таңдаңыз / Тилди тандаңыз:", reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(LANG_CALLBACK_PREFIX))
+async def set_language(callback: CallbackQuery):
+    lang_code = callback.data[len(LANG_CALLBACK_PREFIX):]
+    user_id = callback.from_user.id
+
+    set_user_language(user_id, lang_code)
+
+    kb = ReplyKeyboardBuilder()
+    kb.button(text=get_text(lang_code, "button_market"))
+    kb.button(text=get_text(lang_code, "button_niche"))
+    kb.button(text=get_text(lang_code, "button_profit"))
+    kb.button(text=get_text(lang_code, "button_recommend"))
+    kb.button(text=get_text(lang_code, "button_premium"))
+    kb.adjust(2)
+
+    await callback.message.answer(
+        get_text(lang_code, "welcome"),
+        reply_markup=kb.as_markup(resize_keyboard=True),
+    )
+    await callback.answer()
+
 
 @router.message()
-async def main_handler(message: types.Message):
+async def handle_message(message: Message):
     user_id = message.from_user.id
-    username = message.from_user.username
-
     lang = get_user_language(user_id)
+    text = (message.text or "").strip()
 
-    if message.text == "Русский 🇷🇺":
-        set_user_language(user_id, username, "ru")
-        lang = "ru"
-    elif message.text == "Қазақша 🇰🇿":
-        set_user_language(user_id, username, "kz")
-        lang = "kz"
-    elif message.text == "Кыргызча 🇰🇬":
-        set_user_language(user_id, username, "kg")
-        lang = "kg"
+    # Обработка меню
+    if text == get_text(lang, "button_market"):
+        user_states[user_id] = "market"
+        await message.answer(get_text(lang, "ask_market"))
+        return
 
-    t = LANGS[lang]
+    if text == get_text(lang, "button_niche"):
+        user_states[user_id] = "niche"
+        await message.answer(get_text(lang, "ask_niche"))
+        return
 
-    menu = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text=t["button_market"])],
-            [types.KeyboardButton(text=t["button_niche"])],
-            [types.KeyboardButton(text=t["button_profit"])],
-            [types.KeyboardButton(text=t["button_recommend"])],
-            [types.KeyboardButton(text=t["button_premium"])],
-        ],
-        resize_keyboard=True
-    )
+    if text == get_text(lang, "button_profit"):
+        await message.answer(get_text(lang, "answer_profit_stub"))
+        return
 
-    await message.answer(t["welcome"], reply_markup=menu)
+    if text == get_text(lang, "button_recommend"):
+        user_states[user_id] = "recommend"
+        await message.answer(get_text(lang, "ask_recommend"))
+        return
+
+    if text == get_text(lang, "button_premium"):
+        await message.answer("Премиум-функции в разработке. Позже сюда завезём жирные фишки.")
+        return
+
+    # Если пользователь в состоянии AI-анализа
+    if user_id in user_states:
+        mode = user_states.pop(user_id)
+        await message.answer(get_text(lang, "loading"))
+
+        try:
+            if mode == "market":
+                answer = analyze_market(text, lang)
+            elif mode == "niche":
+                answer = analyze_niche(text, lang)
+            elif mode == "recommend":
+                answer = give_recommendations(text, lang)
+            else:
+                answer = get_text(lang, "unknown_command")
+
+            await message.answer(answer)
+
+        except Exception as e:
+            # Для отладки можно логировать e, но пользователю даем человеческий текст
+            await message.answer(get_text(lang, "error_ai"))
+
+        return
+
+    # Если ничего не подошло
+    await message.answer(get_text(lang, "unknown_command"))
