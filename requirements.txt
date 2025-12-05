@@ -1,4 +1,5 @@
+aiogram==3.4.1
 python-telegram-bot==20.8
-openai==1.36.0
+openai
 aiohttp
 requests
