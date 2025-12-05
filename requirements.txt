@@ -1,5 +1,5 @@
-aiogram==3.4.1
-python-telegram-bot==20.8
+aiogram==3.12.0
 openai
-aiohttp
 requests
+aiohttp
+python-dotenv
