@@ -24,7 +24,7 @@ DB_PATH = "database.db"
 OWNER_ID = 1974482384
 OWNER_USERNAME = "ihaariss"
 
-# Менеджер по умолчанию (твой текущий менеджер)
+# Менеджер по умолчанию
 DEFAULT_MANAGER_ID = 571499876
 DEFAULT_MANAGER_USERNAME = "Artbazar_support"
 
@@ -172,6 +172,18 @@ def get_stats():
     }
 
 
+def get_all_managers():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT user_id, username, first_name
+        FROM users WHERE role='manager'
+    """)
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
 # ==========================
 #        ЛОКАЛИЗАЦИЯ
 # ==========================
@@ -307,6 +319,8 @@ def keyboard_owner():
 # ==========================
 
 def _call_openai(system_prompt: str, user_prompt: str, max_tokens: int = 600) -> str:
+    if not OPENAI_KEY:
+        return "⚠ AI временно недоступен: не настроен OPENAI_API_KEY."
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -525,7 +539,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-    text = update.message.text or ""
+    text = (update.message.text or "").strip()
     t = LOCALES["ru"]
 
     data = get_user_data(user_id)
@@ -542,7 +556,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mode == "manager_givepremium" and role in ("manager", "owner"):
         context.user_data["mode"] = None
         try:
-            parts = text.strip().split()
+            parts = text.split()
             target_id = int(parts[0])
             days = int(parts[1])
         except Exception:
@@ -646,14 +660,4 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = ai_competitors(text)
             await update.message.reply_text(result)
         except Exception:
-            await update.message.reply_text("Ошибка при анализе конкурентов.")
-        return
-
-    if mode == "trends":
-        context.user_data["mode"] = None
-        try:
-            result = ai_trends(text)
-            await update.message.reply_text(result)
-        except Exception:
-            await update.message.reply_text("Не удалось получить трендовую аналитику.")
-       
+            await update.message.reply_text("Ошибка при ана
