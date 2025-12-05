@@ -1,20 +1,28 @@
 import os
 from dotenv import load_dotenv
 
-# Загрузка .env (для локального тестирования, на Fly.io не используется)
+# Загружаем переменные из .env, если файл существует (для локального тестирования)
 load_dotenv()
 
-# Обязательные переменные, которые Fly.io должен установить как Secrets
-# BOT_TOKEN: Ваш токен от BotFather (fly secrets set BOT_TOKEN='...')
+# Основные токены
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# WEBHOOK_HOST: Имя вашего приложения на Fly.io (например, artbazarbot)
-# Он нужен, чтобы main.py мог сформировать полный WEBHOOK_URL
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
-
-# Ключ OpenAI (если вы его установите)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Проверка наличия токена
+# Переменные для Webhook (ОБЯЗАТЕЛЬНО для Fly.io)
+# Они должны быть установлены как Secrets на Fly.io!
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST") # Например, artbazarbot.fly.dev
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") # Например, /super_secret_artbazar_path_999
+
+# Формируем полный URL для Webhook
+if WEBHOOK_HOST and WEBHOOK_PATH:
+    # Fly.io использует HTTPS
+    WEBHOOK_URL = f"https://{WEBHOOK_HOST}{WEBHOOK_PATH}"
+else:
+    # Если переменные не установлены, это критическая ошибка
+    WEBHOOK_URL = None
+    if os.getenv("FLY_APP_NAME"):
+        raise ValueError("CRITICAL ERROR: WEBHOOK_HOST or WEBHOOK_PATH environment variables are missing.")
+
+# Также проверяем, что BOT_TOKEN установлен
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не установлен. Установите его как Secret.")
+    raise ValueError("CRITICAL ERROR: BOT_TOKEN environment variable is missing.")
