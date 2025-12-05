@@ -1,5 +1,4 @@
-aiogram==3.12.0
+aiogram==3.4.1
 aiohttp
-openai
+openai>=1.13.0
 requests
-python-dotenv
