@@ -1,85 +1,67 @@
 import sqlite3
 import time
+from typing import Optional, Tuple
 
-DB_PATH = "database.db"
+from config import DB_PATH
 
 
-# ---------- Инициализация таблицы премиум-подписок ----------
+def _conn():
+    return sqlite3.connect(DB_PATH)
+
+
 def init_premium_table():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("""
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS premium (
-            user_id INTEGER PRIMARY KEY,
-            expires_at INTEGER  -- timestamp UNIX
+            user_id     INTEGER PRIMARY KEY,
+            until_ts    INTEGER NOT NULL,
+            tariff      TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-
+        """
+    )
     conn.commit()
     conn.close()
 
 
-# ---------- Выдача премиума ----------
-def give_premium(user_id: int, days: int):
-    expires_at = int(time.time()) + days * 24 * 3600  # сколько дней длится премиум
+def set_premium(user_id: int, days: int, tariff: str) -> None:
+    until_ts = int(time.time()) + days * 24 * 60 * 60
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO premium (user_id, expires_at)
-        VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at
-    """, (user_id, expires_at))
-
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO premium(user_id, until_ts, tariff)
+        VALUES(?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            until_ts = excluded.until_ts,
+            tariff   = excluded.tariff
+        """,
+        (user_id, until_ts, tariff),
+    )
     conn.commit()
     conn.close()
 
 
-# ---------- Удаление премиума ----------
-def remove_premium(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM premium WHERE user_id = ?", (user_id,))
-
-    conn.commit()
+def get_premium(user_id: int) -> Optional[Tuple[int, str]]:
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT until_ts, tariff FROM premium WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
     conn.close()
-
-
-# ---------- Проверка — есть ли премиум ----------
-def has_premium(user_id: int) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT expires_at FROM premium WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-
-    conn.close()
-
     if not row:
+        return None
+    return int(row[0]), row[1]
+
+
+def has_active_premium(user_id: int) -> bool:
+    data = get_premium(user_id)
+    if not data:
         return False
-
-    expires_at = row[0]
-    return expires_at > int(time.time())
-
-
-# ---------- Сколько осталось дней ----------
-def premium_days_left(user_id: int) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT expires_at FROM premium WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-
-    conn.close()
-
-    if not row:
-        return 0
-
-    left_seconds = row[0] - int(time.time())
-    if left_seconds < 0:
-        return 0
-
-    return left_seconds // 86400  # дни
+    until_ts, _ = data
+    return until_ts > int(time.time())
