@@ -1,102 +1,156 @@
 from aiogram import Router, F
 from aiogram.types import Message
 
-from roles import is_owner, is_manager, MANAGERS
-from admin_keyboards import owner_keyboard, manager_keyboard
-from database import set_user_language  # позже расширим
-from premium_db import give_premium, remove_premium  # создадим файл premium_db.py
+from admin_keyboards import owner_admin_kb, manager_admin_kb
+from keyboards import get_main_keyboard
+from roles_db import is_owner, is_manager, set_role, list_managers, get_role, ROLE_MANAGER
+from premium_db import has_active_premium, get_premium, set_premium
 
-router_admin = Router()
-
-
-# ---------- Команда входа в админку ----------
-@router_admin.message(F.text == "Админ панель")
-async def admin_entry(message: Message):
-    user_id = message.from_user.id
-
-    if is_owner(user_id):
-        await message.answer("Панель владельца открыта:", reply_markup=owner_keyboard)
-
-    elif is_manager(user_id):
-        await message.answer("Панель менеджера открыта:", reply_markup=manager_keyboard)
-
-    else:
-        await message.answer("У вас нет доступа к административной панели.")
+router = Router()
 
 
-# ---------- Управление менеджерами ----------
-@router_admin.message(F.text == "Управление менеджерами")
-async def manage_managers(message: Message):
+# ---------- вход в панели ----------
+
+@router.message(F.text == "Админ 👑")
+async def enter_owner_panel(message: Message):
     if not is_owner(message.from_user.id):
-        return await message.answer("Только владелец может управлять менеджерами.")
+        await message.answer("У тебя нет прав владельца.")
+        return
 
     await message.answer(
-        "Отправь ID менеджера с командой:\n"
-        "/add_manager 123456\n"
-        "/remove_manager 123456"
+        "👑 Панель владельца. Здесь можно управлять менеджерами и премиум-доступом.",
+        reply_markup=owner_admin_kb,
     )
 
 
-@router_admin.message(F.text.startswith("/add_manager"))
-async def add_manager(message: Message):
-    if not is_owner(message.from_user.id):
-        return
-
-    try:
-        new_id = int(message.text.split()[1])
-        MANAGERS.add(new_id)
-        await message.answer(f"Менеджер {new_id} добавлен.")
-    except:
-        await message.answer("Неверный формат. Используй: /add_manager ID")
-
-
-@router_admin.message(F.text.startswith("/remove_manager"))
-async def remove_manager(message: Message):
-    if not is_owner(message.from_user.id):
-        return
-
-    try:
-        delete_id = int(message.text.split()[1])
-        MANAGERS.discard(delete_id)
-        await message.answer(f"Менеджер {delete_id} удалён.")
-    except:
-        await message.answer("Неверный формат. Используй: /remove_manager ID")
-
-
-# ---------- Управление премиум-доступом ----------
-@router_admin.message(F.text == "Премиум-доступы")
-async def premium_access(message: Message):
+@router.message(F.text == "Менеджер 📋")
+async def enter_manager_panel(message: Message):
     if not is_manager(message.from_user.id):
-        return await message.answer("Нет доступа.")
+        await message.answer("Доступно только менеджерам и владельцу.")
+        return
 
     await message.answer(
-        "Доступные команды:\n"
-        "/give_premium ID 30\n"
-        "/remove_premium ID"
+        "📋 Панель менеджера. Работа с премиум-клиентами и поддержкой.",
+        reply_markup=manager_admin_kb,
     )
 
 
-@router_admin.message(F.text.startswith("/give_premium"))
-async def give_p(message: Message):
-    if not is_manager(message.from_user.id):
+# ---------- возврат в главное меню ----------
+
+@router.message(F.text == "⬅️ В главное меню")
+async def back_to_main(message: Message):
+    from roles_db import get_role  # локальный импорт, чтобы избежать циклов
+
+    role = get_role(message.from_user.id)
+    kb = get_main_keyboard(role)
+    await message.answer("Возвращаю основное меню.", reply_markup=kb)
+
+
+# ---------- премиум: выдача (упрощённо через reply) ----------
+
+@router.message(F.text == "Выдать премиум 🎁")
+async def stub_give_premium(message: Message):
+    """
+    Пока делаем заглушку: объясняем, как выдать премиум вручную.
+    Реальную FSM для ввода ID и тарифа можно докрутить позже.
+    """
+    await message.answer(
+        "Пока выдача премиума делается вручную через команду:\n\n"
+        "/gift_premium user_id days тариф\n\n"
+        "Пример: /gift_premium 123456789 30 '1 месяц'."
+    )
+
+
+@router.message(F.text == "Список премиум 👥")
+async def list_premium_stub(message: Message):
+    await message.answer(
+        "Список премиум-клиентов пока не выведен в интерфейс.\n"
+        "Позже сделаем отдельный экран со списком."
+    )
+
+
+# ---------- команды, которыми реально можно пользоваться уже сейчас ----------
+
+@router.message(F.text.startswith("/gift_premium"))
+async def cmd_gift_premium(message: Message):
+    """
+    /gift_premium user_id days тариф
+    Доступно только владельцу.
+    """
+    if not is_owner(message.from_user.id):
+        await message.answer("Только владелец может дарить премиум этой командой.")
+        return
+
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        await message.answer(
+            "Формат: /gift_premium user_id days тариф\n"
+            "Пример: /gift_premium 123456789 30 1_месяц"
+        )
         return
 
     try:
-        _, user_id, days = message.text.split()
-        give_premium(int(user_id), int(days))
-        await message.answer(f"Премиум выдан: {user_id} на {days} дней.")
-    except:
-        await message.answer("Формат: /give_premium ID DAYS")
+        target_id = int(parts[1])
+        days = int(parts[2])
+        tariff = parts[3]
+    except ValueError:
+        await message.answer("user_id и days должны быть числами.")
+        return
+
+    set_premium(target_id, days, tariff)
+    await message.answer(
+        f"Премиум на {days} дней ({tariff}) выдан пользователю {target_id}."
+    )
 
 
-@router_admin.message(F.text.startswith("/remove_premium"))
-async def remove_p(message: Message):
-    if not is_manager(message.from_user.id):
+# ---------- управление менеджерами (через команды) ----------
+
+@router.message(F.text == "Добавить менеджера ➕")
+async def hint_add_manager(message: Message):
+    if not is_owner(message.from_user.id):
+        await message.answer("Только владелец может назначать менеджеров.")
+        return
+
+    await message.answer(
+        "Чтобы назначить менеджера, используй команду:\n\n"
+        "/add_manager user_id\n\n"
+        "Позже сделаем это через кнопки."
+    )
+
+
+@router.message(F.text == "Список менеджеров 📋")
+async def show_managers(message: Message):
+    if not is_owner(message.from_user.id):
+        await message.answer("Только владелец может смотреть список менеджеров.")
+        return
+
+    managers = list_managers()
+    if not managers:
+        await message.answer("Пока нет менеджеров.")
+        return
+
+    lines = []
+    for uid, role in managers:
+        lines.append(f"{uid} — {role}")
+    await message.answer("Менеджеры и владельцы:\n" + "\n".join(lines))
+
+
+@router.message(F.text.startswith("/add_manager"))
+async def cmd_add_manager(message: Message):
+    if not is_owner(message.from_user.id):
+        await message.answer("Только владелец может назначать менеджеров.")
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Формат: /add_manager user_id")
         return
 
     try:
-        _, user_id = message.text.split()
-        remove_premium(int(user_id))
-        await message.answer(f"Премиум снят у: {user_id}")
-    except:
-        await message.answer("Формат: /remove_premium ID")
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("user_id должен быть числом.")
+        return
+
+    set_role(target_id, ROLE_MANAGER)
+    await message.answer(f"Пользователь {target_id} назначен менеджером.")
