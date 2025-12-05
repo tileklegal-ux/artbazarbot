@@ -1,5 +1,5 @@
 texts = {
-    "start": "ArtBazar AI көмекшісіне қош келдіңіз!",
+    "welcome": "ArtBazar AI көмекшісіне қош келдіңіз!",
     "select_language": "Тілді таңдаңыз:",
     "menu_main": "Басты меню",
     "button_market": "Нарық анализі",
