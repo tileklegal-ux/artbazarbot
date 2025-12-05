@@ -8,26 +8,26 @@ from aiogram.types import Update
 
 from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PATH
 from handlers import router
-from admin_panel import router_admin        # ← ДОБАВЛЕНО
-from database import init_db                # ← уже есть
-from premium_db import init_premium_table   # ← ДОБАВЛЕНО
+from database import init_db
+from roles_db import init_roles_table
+from premium_db import init_premium_table
 
 
 logging.basicConfig(level=logging.INFO)
 
 
 async def on_startup(bot: Bot):
-    # создаём таблицы БД (users и premium)
+    # создаём таблицы
     init_db()
-    init_premium_table()   # ← создаём таблицу премиума
+    init_roles_table()
+    init_premium_table()
 
-    # ставим webhook в Telegram
+    # ставим webhook
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"🚀 WEBHOOK установлен: {WEBHOOK_URL}")
 
 
 async def on_shutdown(bot: Bot):
-    # снимаем webhook
     await bot.delete_webhook()
     logging.info("🛑 WEBHOOK удалён")
 
@@ -40,6 +40,7 @@ async def webhook_handler(request: web.Request) -> web.Response:
     update = Update.model_validate(data)
 
     await dp.feed_update(bot, update)
+
     return web.Response(text="OK")
 
 
@@ -49,19 +50,14 @@ async def main():
 
     bot = Bot(BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
 
-    # подключаем роутеры
-    dp.include_router(router)        # пользовательские хендлеры
-    dp.include_router(router_admin)  # админ-панель ← ДОБАВЛЕНО
-
-    # создаём aiohttp веб-сервер
+    # aiohttp сервер
     app = web.Application()
     app["bot"] = bot
     app["dp"] = dp
-
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
 
-    # старт
     await on_startup(bot)
 
     runner = web.AppRunner(app)
