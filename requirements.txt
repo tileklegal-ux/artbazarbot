@@ -1,4 +1,0 @@
-aiogram==3.10.0
-python-dotenv
-aiosqlite
-openai
