@@ -1,18 +1,18 @@
 import os
 
+# Токен бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-WEBHOOK_HOST = "https://artbazarbot.fly.dev"
+# Вебхук (должен совпадать с тем, что в Fly)
 WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/") + WEBHOOK_PATH
 
-# 🔥 ЭТОГО У ТЕБЯ НЕ ХВАТАЛО
-WEBHOOK_URL = WEBHOOK_HOST + WEBHOOK_PATH
+# БД
+DB_PATH = os.getenv("DB_PATH", "database.db")
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан. Проверь Secrets Fly.io")
+# Владелец по умолчанию (первичный OWNER, записываем в БД при старте)
+# ← сюда ставим твой Telegram ID
+OWNER_ID = int(os.getenv("OWNER_ID", "1974482384"))
 
-if not OPENAI_API_KEY:
-    print("⚠️ ВНИМАНИЕ: OPENAI_API_KEY не задан. AI отключён.")
+# (опционально) дефолтный менеджер — можно не использовать
+DEFAULT_MANAGER_ID = os.getenv("DEFAULT_MANAGER_ID")
