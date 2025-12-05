@@ -1,31 +1,41 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# ---------- Клавиатура выбора языка ----------
-language_keyboard = ReplyKeyboardMarkup(
+# ▶️ Пользовательское меню
+user_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="Русский 🇷🇺"),
-            KeyboardButton(text="Кыргызча 🇰🇬"),
-            KeyboardButton(text="Қазақша 🇰🇿")
-        ]
+        [KeyboardButton("Анализ рынка 📊"), KeyboardButton("Подбор ниши 🧭")],
+        [KeyboardButton("Калькулятор маржи 💰"), KeyboardButton("Рекомендации ⚡")],
+        [KeyboardButton("Премиум 🚀")]
     ],
     resize_keyboard=True
 )
 
-# ---------- Главное меню ----------
-main_menu_keyboard = ReplyKeyboardMarkup(
+# ▶️ Менеджерское меню
+manager_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="Анализ рынка 📊"),
-            KeyboardButton(text="Подбор ниши 🧭")
-        ],
-        [
-            KeyboardButton(text="Калькулятор маржи 💰"),
-            KeyboardButton(text="Рекомендации ⚡")
-        ],
-        [
-            KeyboardButton(text="Премиум 🚀")
-        ]
+        [KeyboardButton("Проверить премиум 💎"), KeyboardButton("Отметить оплату 💵")],
+        [KeyboardButton("Поддержка 🛟")],
+        [KeyboardButton("Назад ↩️")]
+    ],
+    resize_keyboard=True
+)
+
+# ▶️ Меню владельца
+owner_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton("Статистика 📊"), KeyboardButton("Пользователи 👤")],
+        [KeyboardButton("Управление премиумом 💎"), KeyboardButton("Менеджеры 👨‍💻")],
+        [KeyboardButton("Назад ↩️")]
+    ],
+    resize_keyboard=True
+)
+
+# ▶️ Кнопки выбора языка
+language_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton("Русский 🇷🇺")],
+        [KeyboardButton("Кыргызча 🇰🇬")],
+        [KeyboardButton("Қазақша 🇰🇿")]
     ],
     resize_keyboard=True
 )
