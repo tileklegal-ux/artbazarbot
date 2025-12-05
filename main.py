@@ -7,10 +7,25 @@ from config import BOT_TOKEN
 from handlers import router
 from database import init_db
 
-async def on_startup(bot: Bot, webhook_url: str):
-    await bot.set_webhook(webhook_url)
 
-async def create_app():
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://artbazarbot.fly.dev/webhook")
+WEBHOOK_PATH = "/webhook"
+
+
+async def on_startup(app: web.Application):
+    bot: Bot = app["bot"]
+    await bot.set_webhook(WEBHOOK_URL)
+    print(f"Webhook set to {WEBHOOK_URL}")
+
+
+async def on_shutdown(app: web.Application):
+    bot: Bot = app["bot"]
+    await bot.delete_webhook()
+    await bot.session.close()
+    print("Webhook deleted and bot session closed")
+
+
+async def create_app() -> web.Application:
     init_db()
 
     bot = Bot(token=BOT_TOKEN)
@@ -18,12 +33,17 @@ async def create_app():
     dp.include_router(router)
 
     app = web.Application()
+    app["bot"] = bot
 
-    SimpleRequestHandler(dp, bot).register(app, path="/webhook")
+    SimpleRequestHandler(dp, bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
-    app.on_startup.append(lambda _: on_startup(bot, "https://artbazarbot.fly.dev/webhook"))
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
     return app
 
+
 if __name__ == "__main__":
-    web.run_app(create_app(), host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    port = int(os.getenv("PORT", 8080))
+    web.run_app(create_app(), host="0.0.0.0", port=port)
