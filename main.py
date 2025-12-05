@@ -1,3 +1,4 @@
+
 import os
 import time
 import sqlite3
@@ -671,4 +672,306 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result)
         except Exception:
             await update.message.reply_text(
-            
+                "Ошибка при анализе конкурентов."
+            )
+        return
+
+    if mode == "trends":
+        context.user_data["mode"] = None
+        try:
+            result = ai_trends(text)
+            await update.message.reply_text(result)
+        except Exception:
+            await update.message.reply_text(
+                "Не удалось получить трендовую аналитику."
+            )
+        return
+
+    if mode == "ideas":
+        context.user_data["mode"] = None
+        try:
+            result = ai_ideas(text)
+            await update.message.reply_text(result)
+        except Exception:
+            await update.message.reply_text(
+                "Ошибка при генерации идей."
+            )
+        return
+
+    if mode == "ai_premium":
+        context.user_data["mode"] = None
+        try:
+            result = ai_premium_analyze(text)
+            await update.message.reply_text(result)
+        except Exception:
+            await update.message.reply_text("Ошибка AI-анализа.")
+        return
+
+    # ====== КНОПКИ ПОЛЬЗОВАТЕЛЯ ======
+    if text == t["btn_niche"]:
+        context.user_data["mode"] = "niche"
+        await update.message.reply_text(t["ask_niche"])
+        return
+
+    if text == t["btn_market"]:
+        context.user_data["mode"] = "market"
+        await update.message.reply_text(t["ask_market"])
+        return
+
+    if text == t["btn_competitors"]:
+        context.user_data["mode"] = "competitors"
+        await update.message.reply_text(t["ask_competitors"])
+        return
+
+    if text == t["btn_trends"]:
+        context.user_data["mode"] = "trends"
+        await update.message.reply_text(t["ask_trends"])
+        return
+
+    if text == t["btn_ideas"]:
+        context.user_data["mode"] = "ideas"
+        await update.message.reply_text(t["ask_ideas"])
+        return
+
+    if text == t["btn_margin"]:
+        context.user_data["mode"] = "margin"
+        context.user_data["margin_step"] = "cost"
+        await update.message.reply_text(
+            "Введи закупочную цену товара в сомах.\nНапример: 800"
+        )
+        return
+
+    if text == t["btn_ai"]:
+        if not data["premium_until"] or data["premium_until"] < time.time():
+            await update.message.reply_text(t["no_premium"])
+            return
+        context.user_data["mode"] = "ai_premium"
+        await update.message.reply_text(t["ask_ai"])
+        return
+
+    if text == t["btn_cabinet"]:
+        premium_status = (
+            format_time(data["premium_until"])
+            if data["premium_until"] and data["premium_until"] > time.time()
+            else "Нет"
+        )
+
+        profile = f"""
+📂 Личный кабинет
+
+ID: {data['user_id']}
+Username: @{data['username']}
+Имя: {data['first_name']}
+Роль: {data['role']}
+
+Дата регистрации: {format_time(data['created_at'])}
+Последний онлайн: {format_time(data['last_active'])}
+
+Премиум до: {premium_status}
+Всего запросов: {data['total_requests']}
+"""
+        await update.message.reply_text(
+            profile, reply_markup=keyboard_user()
+        )
+        return
+
+    if text == t["btn_buy"]:
+        await update.message.reply_text(
+            f"""
+⭐ ТАРИФЫ PREMIUM:
+
+1 месяц — 490 сом  
+6 месяцев — 1990 сом  
+1 год — 3490 сом  
+
+🔥 АКЦИЯ (до конца месяца):
+
+1 месяц — 390 сом  
+6 месяцев — 1690 сом  
+1 год — 2990 сом  
+
+После оплаты отправьте чек менеджеру: @{DEFAULT_MANAGER_USERNAME}
+""".strip()
+        )
+        return
+
+    if text == t["btn_sale"]:
+        await update.message.reply_text(
+            f"""
+🔥 АКЦИЯ:
+
+1 месяц — 390 сом  
+6 месяцев — 1690 сом  
+1 год — 2990 сом  
+
+Отправь чек менеджеру: @{DEFAULT_MANAGER_USERNAME}
+""".strip()
+        )
+        return
+
+    if text == t["btn_change_lang"]:
+        await update.message.reply_text(
+            LOCALES["ru"]["choose_lang"],
+            reply_markup=keyboard_lang(),
+        )
+        return
+
+    # ====== КНОПКИ МЕНЕДЖЕРА / ВЛАДЕЛЬЦА ======
+    if text == t["btn_manager_give"] and role in ("manager", "owner"):
+        context.user_data["mode"] = "manager_givepremium"
+        await update.message.reply_text(
+            t["manager_give_prompt"], parse_mode="HTML"
+        )
+        return
+
+    if text == t["btn_manager_stats"] and role in ("manager", "owner"):
+        s = get_stats()
+        msg = f"""
+📊 Статистика за сутки:
+
+Всего пользователей: {s['total_users']}
+Премиум-пользователей: {s['premium_users']}
+Менеджеров: {s['managers']}
+Активно за 24 ч: {s['active_24h']}
+"""
+        await update.message.reply_text(msg)
+        return
+
+    if text == LOCALES["ru"]["btn_owner_stats"] and role == "owner":
+        s = get_stats()
+        msg = f"""
+👑 Полная статистика:
+
+Всего пользователей: {s['total_users']}
+Премиум-пользователей: {s['premium_users']}
+Менеджеров: {s['managers']}
+Активно за 24 ч: {s['active_24h']}
+"""
+        await update.message.reply_text(msg)
+        return
+
+    await update.message.reply_text(
+        "Команда пока не поддерживается. Нажми кнопку в меню."
+    )
+
+
+# ==========================
+#      ADMIN COMMANDS
+# ==========================
+
+async def addmanager(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != OWNER_ID:
+        await update.message.reply_text(LOCALES["ru"]["not_allowed"])
+        return
+
+    if not context.args:
+        await update.message.reply_text("Использование: /addmanager @username")
+        return
+
+    username = context.args[0].lstrip("@")
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        await update.message.reply_text(
+            "Этот пользователь ещё не запускал бота. Пусть сначала нажмёт /start."
+        )
+        return
+
+    set_role(row[0], "manager")
+    await update.message.reply_text(
+        f"Пользователь @{username} назначен менеджером."
+    )
+
+
+async def removemanager(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != OWNER_ID:
+        await update.message.reply_text(LOCALES["ru"]["not_allowed"])
+        return
+
+    if not context.args:
+        await update.message.reply_text("Использование: /removemanager @username")
+        return
+
+    username = context.args[0].lstrip("@")
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        await update.message.reply_text("Пользователь не найден в БД.")
+        return
+
+    set_role(row[0], "user")
+    await update.message.reply_text(
+        f"Пользователь @{username} снят с роли менеджера."
+    )
+
+
+async def givepremium_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    data = get_user_data(user.id)
+
+    if not data or data["role"] not in ("owner", "manager"):
+        await update.message.reply_text(LOCALES["ru"]["not_allowed"])
+        return
+
+    try:
+        target_id = int(context.args[0])
+        days = int(context.args[1])
+    except Exception:
+        await update.message.reply_text(
+            "Использование: /givepremium USER_ID DAYS"
+        )
+        return
+
+    until = set_premium(target_id, days)
+    await update.message.reply_text(
+        f"Премиум выдан пользователю {target_id} на {days} дней.\nДо: {format_time(until)}"
+    )
+
+
+# ==========================
+#             MAIN
+# ==========================
+
+def main():
+    init_db()
+
+    application = Application.builder().token(TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin))
+    application.add_handler(CommandHandler("addmanager", addmanager))
+    application.add_handler(CommandHandler("removemanager", removemanager))
+    application.add_handler(CommandHandler("givepremium", givepremium_cmd))
+
+    application.add_handler(
+        MessageHandler(
+            filters.Regex("Кыргызча|Қазақша|Русский"), choose_lang
+        )
+    )
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle)
+    )
+
+    # Webhook-режим под Fly.io
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"{APP_URL}/{TOKEN}",
+    )
+
+
+if __name__ == "__main__":
+    main()
