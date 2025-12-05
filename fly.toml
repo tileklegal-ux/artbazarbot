@@ -1,15 +1,22 @@
+# Имя вашего приложения на Fly.io
 app = "artbazarbot"
-primary_region = "ams" # Или ваш регион (например, fra, iad)
 
+# Регион, где будет запущен ваш бот (например, Франкфурт)
+primary_region = "fra"
+
+# Конфигурация сборки (используем стандартный Python-билдер)
 [build]
+  builder = "paketobuildpacks/builder-jammy-full"
 
-[env]
-  PORT = "8080"
-  WEBHOOK_HOST = "https://artbazarbot.fly.dev"
-  WEBHOOK_PATH = "/webhook"
-  WEBHOOK_URL = "https://artbazarbot.fly.dev/webhook"
+# Критически важный блок: Volume для базы данных SQLite
+# Это говорит Fly.io создать хранилище artbazar_volume и подключить его к папке /app/data
+# Если этого хранилища нет, Fly.io создаст его при первом деплое.
+[mounts]
+  source="artbazar_volume"
+  destination="/app/data"
 
-# Используем http_service для автоматической настройки HTTPS (порты 80 и 443)
+# Конфигурация для HTTP-сервиса (Webhook)
+# Обязательно слушает порт 8080
 [http_service]
   internal_port = 8080
   force_https = true
@@ -17,8 +24,12 @@ primary_region = "ams" # Или ваш регион (например, fra, iad)
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
-
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 256
+  
+# Настройка проверки работоспособности (Health Check)
+# Проверяет, что приложение отвечает на Webhook-путь
+[[checks]]
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "5s"
+  method = "GET"
+  path = "/super_secret_artbazar_path_999" # Наш WEBHOOK_PATH
