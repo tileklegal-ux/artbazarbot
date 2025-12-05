@@ -2,13 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Открываем PORT, чтобы Fly думал что это web app
-ENV PORT=8080
-EXPOSE 8080
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . /app
-
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+COPY . .
 
 CMD ["python", "main.py"]
