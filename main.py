@@ -6,7 +6,7 @@ from handlers import router
 
 async def main():
     init_db()
-    bot = Bot(BOT_TOKEN)
+    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
     await dp.start_polling(bot)
