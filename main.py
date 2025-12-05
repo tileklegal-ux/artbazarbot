@@ -44,7 +44,6 @@ def init_db():
     c = conn.cursor()
 
     c.execute(
-        """
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -56,7 +55,6 @@ def init_db():
             request_count INTEGER DEFAULT 0
         )
     c.execute(
-        """
         CREATE TABLE IF NOT EXISTS premium_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
