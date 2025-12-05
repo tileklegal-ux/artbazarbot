@@ -1,35 +1,33 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from messages_ru import ru_texts
-from messages_kg import kg_texts
-from messages_kz import kz_texts
+import openai
+from config import OPENAI_KEY
+from messages_ru import texts as ru
+from messages_kg import texts as kg
+from messages_kz import texts as kz
 
+openai.api_key = OPENAI_KEY
 
-def get_texts(lang: str):
+def get_texts(lang):
     if lang == "kg":
-        return kg_texts
+        return kg
     if lang == "kz":
-        return kz_texts
-    return ru_texts  # язык по умолчанию — русский
+        return kz
+    return ru
 
 
-def main_menu_buttons(texts):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=texts["btn_niche"], callback_data="niche")],
-            [InlineKeyboardButton(text=texts["btn_market"], callback_data="market")],
-            [InlineKeyboardButton(text=texts["btn_competitors"], callback_data="competitors")],
-            [InlineKeyboardButton(text=texts["btn_margin"], callback_data="margin_calc")],
-            [InlineKeyboardButton(text=texts["btn_ideas"], callback_data="ideas")],
-            [InlineKeyboardButton(text=texts["btn_language"], callback_data="lang_menu")],
-        ]
+async def ask_openai(lang, query):
+    prompt = build_prompt(lang, query)
+
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
     )
 
+    return response.choices[0].message["content"]
 
-def language_menu():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
-            [InlineKeyboardButton(text="🇰🇬 Кыргызча", callback_data="lang_kg")],
-            [InlineKeyboardButton(text="🇰🇿 Қазақша", callback_data="lang_kz")],
-        ]
-    )
+
+def build_prompt(lang, query):
+    if lang == "kg":
+        return f"Жоопту кыргызча, ү, ө, ң тамгалары менен бер. Суроо: {query}"
+    elif lang == "kz":
+        return f"Жауапты қазақша ә, ғ, қ, ң, ө, ү, ұ, і әріптерімен бер. Сұрақ: {query}"
+    return f"Ответь строго на русском языке. Вопрос: {query}"
