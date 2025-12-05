@@ -55,9 +55,6 @@ def init_db():
             last_active INTEGER,
             request_count INTEGER DEFAULT 0
         )
-        """
-    )
-
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS premium_logs (
@@ -66,8 +63,6 @@ def init_db():
             manager_id INTEGER,
             months INTEGER,
             created_at INTEGER
-        )
-        """
         )
 
     conn.commit()
