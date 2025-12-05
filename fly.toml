@@ -1,8 +1,22 @@
 app = "artbazarbot"
 primary_region = "iad"
 
-[env]
-PYTHONUNBUFFERED = "1"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+auto_start = true
+auto_stop = false
 
-[experimental]
-auto_rollback = true
+[env]
+PORT = "8080"
+
+[processes]
+app = "python main.py"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_start_machines = true
+  auto_stop_machines = false
+
+  [[services.ports]]
+      port = 8080
