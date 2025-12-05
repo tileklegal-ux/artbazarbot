@@ -1,0 +1,13 @@
+app = "artbazarbot"
+
+[build]
+
+[env]
+PORT = "8080"
+
+[[services]]
+protocol = "tcp"
+internal_port = 8080
+
+  [[services.ports]]
+  port = 80
