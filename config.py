@@ -1,5 +1,15 @@
-# config.py
+DEFAULT_LANGUAGE = "ru"
 
-TOKEN = "ВАШ_ТОКЕН_ТУТ"
+SUPPORTED_LANGUAGES = ["ru", "kg", "kz"]
 
-DB_PATH = "artbazar.db"
+LANG_FILES = {
+    "ru": "messages_ru",
+    "kg": "messages_kg",
+    "kz": "messages_kz",
+}
+
+# OPENAI ключ брать из переменной окружения на Fly
+import os
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+DB_PATH = "database.db"
