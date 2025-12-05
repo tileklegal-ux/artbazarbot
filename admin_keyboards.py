@@ -1,34 +1,23 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# ---------- Меню владельца ----------
-owner_keyboard = ReplyKeyboardMarkup(
+
+owner_admin_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="Управление менеджерами"),
-            KeyboardButton(text="Премиум-доступы"),
-        ],
-        [
-            KeyboardButton(text="Статистика"),
-            KeyboardButton(text="Перезапуск системы"),
-        ],
-        [
-            KeyboardButton(text="Главное меню")
-        ]
+        [KeyboardButton(text="Выдать премиум 🎁")],
+        [KeyboardButton(text="Список премиум 👥")],
+        [KeyboardButton(text="Добавить менеджера ➕")],
+        [KeyboardButton(text="Список менеджеров 📋")],
+        [KeyboardButton(text="⬅️ В главное меню")],
     ],
-    resize_keyboard=True
+    resize_keyboard=True,
 )
 
-# ---------- Меню менеджера ----------
-manager_keyboard = ReplyKeyboardMarkup(
+manager_admin_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="Премиум-доступы"),
-            KeyboardButton(text="Оплаты"),
-        ],
-        [
-            KeyboardButton(text="Поддержка"),
-            KeyboardButton(text="Главное меню"),
-        ]
+        [KeyboardButton(text="Выдать премиум 🎁")],
+        [KeyboardButton(text="Список премиум 👥")],
+        [KeyboardButton(text="Поддержка 💬")],
+        [KeyboardButton(text="⬅️ В главное меню")],
     ],
-    resize_keyboard=True
+    resize_keyboard=True,
 )
