@@ -1,106 +1,140 @@
+import logging
 from aiogram import Router, F
-from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-
-from database import get_user_language, set_user_language
-from utils import get_text
-from ai_service import analyze_market, analyze_niche, give_recommendations
+from aiogram.types import Message
+from openai import OpenAI
+from config import OPENAI_KEY
+from database import set_user_language, get_user_language
 
 router = Router()
+client = OpenAI(api_key=OPENAI_KEY)
 
-LANG_CALLBACK_PREFIX = "lang_"
-user_states: dict[int, str] = {}  # user_id -> "market" / "niche" / "recommend"
+# -----------------------------
+#  ЧЕЛОВЕЧЕСКИЙ SYSTEM PROMPT
+# -----------------------------
+SYSTEM_PROMPT = (
+    "Ты — AI-ассистент для предпринимателей. "
+    "Отвечай простым человеческим языком, будто объясняешь другу-предпринимателю. "
+    "Не используй Markdown, не используй ###, *, списки 1) 2) 3). "
+    "Пиши абзацами. "
+    "Стиль — живой, уверенный, спокойный, по делу. "
+    "Сегменты ответа: "
+    "Спрос: ... "
+    "Конкуренция: ... "
+    "Маржа (если уместно): ... "
+    "Рекомендации: ... "
+    "Избегай канцелярита, сухих текстов и академического стиля. "
+    "Пиши так, чтобы читать было приятно и полезно."
+)
 
-
-@router.message(CommandStart())
-async def cmd_start(message: Message):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Русский 🇷🇺", callback_data=f"{LANG_CALLBACK_PREFIX}ru")
-    kb.button(text="Кыргызча 🇰🇬", callback_data=f"{LANG_CALLBACK_PREFIX}kg")
-    kb.button(text="Қазақша 🇰🇿", callback_data=f"{LANG_CALLBACK_PREFIX}kz")
-    kb.adjust(1)
-
-    await message.answer(
+# -----------------------------
+# КОМАНДА /start
+# -----------------------------
+@router.message(F.text == "/start")
+async def start_cmd(msg: Message):
+    await msg.answer(
+        "Добро пожаловать в ArtBazar AI — ассистент для продавцов онлайн.\n\n"
         "Выберите язык / Тилди тандаңыз / Тілді таңдаңыз:",
-        reply_markup=kb.as_markup(),
+        reply_markup=create_language_keyboard()
+    )
+
+def create_language_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[
+            [KeyboardButton(text="Русский 🇷🇺")],
+            [KeyboardButton(text="Кыргызча 🇰🇬")],
+            [KeyboardButton(text="Қазақша 🇰🇿")],
+        ]
     )
 
 
-@router.callback_query(F.data.startswith(LANG_CALLBACK_PREFIX))
-async def set_language(callback: CallbackQuery):
-    lang_code = callback.data[len(LANG_CALLBACK_PREFIX):]
-    user_id = callback.from_user.id
+# -----------------------------
+# ВЫБОР ЯЗЫКА
+# -----------------------------
+@router.message(F.text.in_(["Русский 🇷🇺", "Кыргызча 🇰🇬", "Қазақша 🇰🇿"]))
+async def choose_language(msg: Message):
+    lang = msg.text
 
-    set_user_language(user_id, lang_code)
+    if lang.startswith("Рус"):
+        code = "ru"
+    elif lang.startswith("Кырг") or lang.startswith("Кыргыз"):
+        code = "kg"
+    else:
+        code = "kz"
 
-    kb = ReplyKeyboardBuilder()
-    kb.button(text=get_text(lang_code, "button_market"))
-    kb.button(text=get_text(lang_code, "button_niche"))
-    kb.button(text=get_text(lang_code, "button_profit"))
-    kb.button(text=get_text(lang_code, "button_recommend"))
-    kb.button(text=get_text(lang_code, "button_premium"))
-    kb.adjust(2)
+    set_user_language(msg.from_user.id, code)
 
-    await callback.message.answer(
-        get_text(lang_code, "welcome"),
-        reply_markup=kb.as_markup(resize_keyboard=True),
+    await msg.answer(
+        "Язык сохранён. Выберите функцию:",
+        reply_markup=create_menu_keyboard()
     )
-    await callback.answer()
+
+def create_menu_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[
+            [KeyboardButton(text="Анализ рынка 📊"), KeyboardButton(text="Подбор ниши 🧭")],
+            [KeyboardButton(text="Калькулятор маржи 💰"), KeyboardButton(text="Рекомендации ⚡")],
+            [KeyboardButton(text="Премиум 🚀")],
+        ]
+    )
 
 
+# -------------------------------------------------
+# АНАЛИЗ / НИША / РЕКОМЕНДАЦИИ — ОБРАБОТКА ЗАПРОСА
+# -------------------------------------------------
+@router.message(F.text.in_(["Анализ рынка 📊", "Подбор ниши 🧭", "Рекомендации ⚡"]))
+async def ask_for_description(msg: Message):
+    if msg.text.startswith("Анализ рынка"):
+        await msg.answer("Опиши товар или нишу, для которой нужен анализ рынка.")
+    elif msg.text.startswith("Подбор ниши"):
+        await msg.answer("Опиши, чем хочешь заниматься. Бот оценит нишу.")
+    else:
+        await msg.answer("Расскажи о товаре и ситуации, дам рекомендации по продажам.")
+
+
+# -----------------------------
+# КАЛЬКУЛЯТОР МАРЖИ
+# -----------------------------
+@router.message(F.text == "Калькулятор маржи 💰")
+async def margin_calc(msg: Message):
+    await msg.answer("Калькулятор маржи скоро будет доступен в следующем обновлении.")
+
+
+# -----------------------------
+# ПРЕМИУМ
+# -----------------------------
+@router.message(F.text == "Премиум 🚀")
+async def premium(msg: Message):
+    await msg.answer("Премиум-функции в разработке. Позже сюда завезём жирные фишки.")
+
+
+# -----------------------------
+# ГЛАВНЫЙ ОБРАБОТЧИК TEKSTA
+# -----------------------------
 @router.message()
-async def handle_message(message: Message):
-    user_id = message.from_user.id
-    lang = get_user_language(user_id)
-    text = (message.text or "").strip()
+async def ai_response(msg: Message):
+    user_text = msg.text
+    lang = get_user_language(msg.from_user.id) or "ru"
 
-    # Обработка меню
-    if text == get_text(lang, "button_market"):
-        user_states[user_id] = "market"
-        await message.answer(get_text(lang, "ask_market"))
-        return
+    # Человекоподобный thinking-ответ
+    await msg.answer("Думаю над ответом... Это может занять несколько секунд ⏳")
 
-    if text == get_text(lang, "button_niche"):
-        user_states[user_id] = "niche"
-        await message.answer(get_text(lang, "ask_niche"))
-        return
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_text}
+            ]
+        )
 
-    if text == get_text(lang, "button_profit"):
-        await message.answer(get_text(lang, "answer_profit_stub"))
-        return
+        reply = completion.choices[0].message["content"]
 
-    if text == get_text(lang, "button_recommend"):
-        user_states[user_id] = "recommend"
-        await message.answer(get_text(lang, "ask_recommend"))
-        return
+        await msg.answer(reply)
 
-    if text == get_text(lang, "button_premium"):
-        await message.answer("Премиум-функции в разработке. Позже сюда завезём жирные фишки.")
-        return
-
-    # Если пользователь в состоянии AI-анализа
-    if user_id in user_states:
-        mode = user_states.pop(user_id)
-        await message.answer(get_text(lang, "loading"))
-
-        try:
-            if mode == "market":
-                answer = analyze_market(text, lang)
-            elif mode == "niche":
-                answer = analyze_niche(text, lang)
-            elif mode == "recommend":
-                answer = give_recommendations(text, lang)
-            else:
-                answer = get_text(lang, "unknown_command")
-
-            await message.answer(answer)
-
-        except Exception as e:
-            # Для отладки можно логировать e, но пользователю даем человеческий текст
-            await message.answer(get_text(lang, "error_ai"))
-
-        return
-
-    # Если ничего не подошло
-    await message.answer(get_text(lang, "unknown_command"))
+    except Exception as e:
+        logging.error(e)
+        await msg.answer("Произошла ошибка при обработке запроса. Попробуй ещё раз.")
