@@ -1,14 +1,20 @@
 app = "artbazarbot"
 
-[build]
-
 [env]
 PORT = "8080"
-WEBHOOK_URL = "https://artbazarbot.fly.dev/webhook"
 
-[[services]]
-protocol = "tcp"
-internal_port = 8080
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
 
-  [[services.ports]]
-  port = 80
+  [[http_service.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[http_service.ports]]
+    port = 443
+    handlers = ["tls", "http"]
