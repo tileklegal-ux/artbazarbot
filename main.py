@@ -8,7 +8,8 @@ from aiogram.types import Update
 
 from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PATH
 from handlers import router
-from database import init_db  # ← ВАЖНО: добавили
+from admin_panel import router_admin        # ← ДОБАВИЛИ ЭТО
+from database import init_db                # ← уже было
 
 
 logging.basicConfig(level=logging.INFO)
@@ -36,13 +37,13 @@ async def webhook_handler(request: web.Request) -> web.Response:
     # 1) Telegram прислал JSON
     data = await request.json()
 
-    # 2) Превращаем JSON в объект Update (важно!)
+    # 2) Превращаем JSON в объект Update
     update = Update.model_validate(data)
 
     # 3) Передаём обновление в aiogram
     await dp.feed_update(bot, update)
 
-    # 4) Отвечаем Telegram "OK" (обязательно)
+    # 4) Telegram нужен ответ "OK"
     return web.Response(text="OK")
 
 
@@ -52,13 +53,17 @@ async def main():
 
     bot = Bot(BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
 
-    # создаём aiohttp веб-сервер
+    # Подключаем роутеры
+    dp.include_router(router)        # пользовательские хендлеры
+    dp.include_router(router_admin)  # админ-панель              ← ДОБАВИЛИ
+
+    # создаём aiohttp сервер
     app = web.Application()
     app["bot"] = bot
     app["dp"] = dp
 
+    # путь webhook
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
 
     # стартовые действия
@@ -67,17 +72,12 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    site = web.TCPSite(
-        runner,
-        host="0.0.0.0",
-        port=8080
-    )
+    site = web.TCPSite(runner, host="0.0.0.0", port=8080)
     await site.start()
 
     logging.info("💡 BOT RUNNING VIA WEBHOOK on 0.0.0.0:8080")
 
     try:
-        # держим контейнер живым
         await asyncio.Event().wait()
     finally:
         await on_shutdown(bot)
