@@ -1,33 +1,62 @@
-import openai
-from config import OPENAI_KEY
-from messages_ru import texts as ru
-from messages_kg import texts as kg
-from messages_kz import texts as kz
+# Импортируем тексты для локализации отчета
+from messages import MESSAGES 
 
-openai.api_key = OPENAI_KEY
+def calculate_margin(cost, delivery, marketing, price, extra_fees):
+    """
+    Рассчитывает маржу и рентабельность (ROM).
+    Все значения принимаются в долларах ($).
+    """
+    total_cost = cost + delivery + marketing + extra_fees
+    profit = price - total_cost
+    
+    # Расчет ROM (Return on Margin) = (Прибыль / Цена продажи) * 100
+    if price > 0:
+        rom = (profit / price) * 100
+    else:
+        rom = 0.0 # Нельзя делить на ноль
 
-def get_texts(lang):
-    if lang == "kg":
-        return kg
-    if lang == "kz":
-        return kz
-    return ru
+    return {
+        "cost": cost,
+        "delivery": delivery,
+        "marketing": marketing,
+        "extra_fees": extra_fees,
+        "total_cost": total_cost,
+        "price": price,
+        "profit": profit,
+        "rom": rom
+    }
 
+def format_margin_report(result: dict, lang_code: str):
+    """Форматирует отчет о расчете маржи на нужном языке."""
+    
+    # Получаем тексты на нужном языке (используем русский как запасной)
+    # Здесь мы не используем T[lang_code], так как нам нужен только текст
+    # форматирования, который не был добавлен в messages.py (но это не критично)
+    T = MESSAGES.get(lang_code, MESSAGES["ru"])
+    
+    # Хелпер для форматирования чисел
+    def fmt(value):
+        return f"{value:,.2f} $"
 
-async def ask_openai(lang, query):
-    prompt = build_prompt(lang, query)
+    report = f"""
+🧮 **{T['calc_start']}**
+*(Результаты расчета)*
 
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+---
+**ВХОДНЫЕ ДАННЫЕ:**
+📦 Себестоимость товара: *{fmt(result['cost'])}*
+🚚 Расходы на доставку: *{fmt(result['delivery'])}*
+📢 Расходы на маркетинг: *{fmt(result['marketing'])}*
+⚙️ Дополнительные расходы: *{fmt(result['extra_fees'])}*
 
-    return response.choices[0].message["content"]
+**ИТОГИ:**
+💰 Цена продажи: **{fmt(result['price'])}**
+💵 Общие расходы: **{fmt(result['total_cost'])}**
+---
+**РЕЗУЛЬТАТ:**
+💸 Чистая прибыль: **{fmt(result['profit'])}**
+📈 Рентабельность (ROM): **{result['rom']:.1f} %**
 
-
-def build_prompt(lang, query):
-    if lang == "kg":
-        return f"Жоопту кыргызча, ү, ө, ң тамгалары менен бер. Суроо: {query}"
-    elif lang == "kz":
-        return f"Жауапты қазақша ә, ғ, қ, ң, ө, ү, ұ, і әріптерімен бер. Сұрақ: {query}"
-    return f"Ответь строго на русском языке. Вопрос: {query}"
+{"✅ *Рекомендуется к продаже.*" if result['profit'] > 0 else "❌ *Продажа нерентабельна.*"}
+"""
+    return report
