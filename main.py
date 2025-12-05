@@ -68,17 +68,20 @@ def init_db():
             created_at INTEGER
         )
         """
+        )
+    """
     )
 
     conn.commit()
     conn.close()
-    def get_user_data(user_id: int):
+
+def get_user_data(user_id: int):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
         """
         SELECT user_id, username, first_name, role, premium_until,
-               created_at, last_active, request_count
+               created_at, last_active, recommended
         FROM users WHERE user_id = ?
         """,
         (user_id,),
