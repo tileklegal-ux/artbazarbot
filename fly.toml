@@ -4,10 +4,13 @@ app = "artbazarbot"
 
 [env]
 PORT = "8080"
+WEBHOOK_HOST = "https://artbazarbot.fly.dev"
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = "https://artbazarbot.fly.dev/webhook"
 
 [[services]]
 protocol = "tcp"
 internal_port = 8080
 
-[[services.ports]]
-port = 80
+  [[services.ports]]
+  port = 80
