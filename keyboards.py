@@ -1,9 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-from roles_db import ROLE_OWNER, ROLE_MANAGER, ROLE_USER
 
-
-# ---------- выбор языка ----------
+# ---------- Клавиатура выбора языка ----------
 language_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Русский 🇷🇺")],
@@ -15,8 +13,7 @@ language_keyboard = ReplyKeyboardMarkup(
 )
 
 
-# ---------- главные меню по ролям ----------
-
+# ---------- USER меню (обычный пользователь) ----------
 def _user_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -36,7 +33,11 @@ def _user_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+# ---------- MANAGER меню ----------
 def _manager_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Менеджер: тот же функционал анализа, но есть доступ в свою панель.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -56,7 +57,11 @@ def _manager_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+# ---------- OWNER меню ----------
 def _owner_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Владелец: полный доступ + отдельная кнопка Админ 👑.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -76,9 +81,13 @@ def _owner_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+# ---------- Публичная функция выбора клавиатуры по роли ----------
 def get_main_keyboard(role: str) -> ReplyKeyboardMarkup:
-    if role == ROLE_OWNER:
+    """
+    role: "owner" / "manager" / всё остальное = user.
+    """
+    if role == "owner":
         return _owner_keyboard()
-    if role == ROLE_MANAGER:
+    if role == "manager":
         return _manager_keyboard()
     return _user_keyboard()
