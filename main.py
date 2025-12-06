@@ -19,7 +19,8 @@ logging.basicConfig(level=logging.INFO)
 
 async def handle(request: web.Request) -> web.Response:
     """
-    Основной хэндлер вебхука: принимает апдейт от Telegram и передаёт его в aiogram.
+    Основной обработчик вебхука: принимает апдейт от Telegram
+    и передаёт его в aiogram.
     """
     data = await request.json()
     update = Update.model_validate(data)
@@ -39,7 +40,7 @@ async def on_startup(app: web.Application):
     """
     bot: Bot = app["bot"]
 
-    # Вебхук
+    # Настройка вебхука
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"Webhook set to {WEBHOOK_URL}")
 
@@ -53,7 +54,9 @@ async def on_startup(app: web.Application):
 
 async def on_shutdown(app: web.Application):
     """
-    Корректное завершение работы: удаляем вебхук и закрываем сессию бота.
+    Корректное завершение:
+    - удаляем вебхук
+    - закрываем сессию бота
     """
     bot: Bot = app["bot"]
 
@@ -70,19 +73,21 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Роутеры
+    # Роутеры: пользовательский + админка
     dp.include_router(user_router)
     dp.include_router(admin_router)
 
-    # Aiohttp-приложение
+    # aiohttp-приложение
     app = web.Application()
     app["bot"] = bot
     app["dp"] = dp
 
+    # Маршрут вебхука
     app.router.add_post(WEBHOOK_PATH, handle)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
+    # Запуск HTTP-сервера на 0.0.0.0:8080 (под Fly.io)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
@@ -91,6 +96,7 @@ async def main():
     logging.info("💡 BOT RUNNING VIA WEBHOOK on 0.0.0.0:8080")
 
     try:
+        # держим процесс живым
         await asyncio.Event().wait()
     finally:
         await runner.cleanup()
