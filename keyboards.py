@@ -27,9 +27,10 @@ def _user_keyboard() -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text="Премиум 🚀"),
-                KeyboardButton(text="🌐 Сменить язык"),
+                KeyboardButton(text="Личный кабинет 👤"),
             ],
             [
+                KeyboardButton(text="🌐 Сменить язык"),
                 KeyboardButton(text="🏠 Главное меню"),
             ],
         ],
@@ -54,7 +55,10 @@ def _manager_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="Менеджер 📋"),
             ],
             [
+                KeyboardButton(text="Личный кабинет 👤"),
                 KeyboardButton(text="🌐 Сменить язык"),
+            ],
+            [
                 KeyboardButton(text="🏠 Главное меню"),
             ],
         ],
@@ -79,7 +83,10 @@ def _owner_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="Админ 👑"),
             ],
             [
+                KeyboardButton(text="Личный кабинет 👤"),
                 KeyboardButton(text="🌐 Сменить язык"),
+            ],
+            [
                 KeyboardButton(text="🏠 Главное меню"),
             ],
         ],
