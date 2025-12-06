@@ -13,24 +13,20 @@ from roles_db import init_roles_table
 from premium_db import init_premium_table
 from usage_db import init_usage_table
 
-
 logging.basicConfig(level=logging.INFO)
 
 
 async def on_startup(bot: Bot):
-    # Инициализация БД
-    init_db()              # таблица users (язык)
-    init_roles_table()     # таблица roles
-    init_premium_table()   # таблица premium
-    init_usage_table()     # таблица usage_logs
+    init_db()
+    init_roles_table()
+    init_premium_table()
+    init_usage_table()
 
-    # Ставим webhook в Telegram
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"🚀 WEBHOOK установлен: {WEBHOOK_URL}")
 
 
 async def on_shutdown(bot: Bot):
-    # Снимаем webhook при остановке
     await bot.delete_webhook()
     logging.info("🛑 WEBHOOK удалён")
 
@@ -66,14 +62,10 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    site = web.TCPSite(
-        runner,
-        host="0.0.0.0",
-        port=8080,
-    )
+    site = web.TCPSite(runner, host="0.0.0.0", port=8080)
     await site.start()
 
-    logging.info("💡 BOT RUNNING VIA WEBHOOK on 0.0.0.0:8080")
+    logging.info("💡 BOT RUNNING on 0.0.0.0:8080")
 
     try:
         await asyncio.Event().wait()
