@@ -13,7 +13,7 @@ language_keyboard = ReplyKeyboardMarkup(
 )
 
 
-# ---------- USER меню (обычный пользователь) ----------
+# ---------- Меню пользователя ----------
 def _user_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -33,11 +33,8 @@ def _user_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# ---------- MANAGER меню ----------
+# ---------- Меню менеджера ----------
 def _manager_keyboard() -> ReplyKeyboardMarkup:
-    """
-    Менеджер: тот же функционал анализа, но есть доступ в свою панель.
-    """
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -57,11 +54,8 @@ def _manager_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# ---------- OWNER меню ----------
+# ---------- Меню владельца ----------
 def _owner_keyboard() -> ReplyKeyboardMarkup:
-    """
-    Владелец: полный доступ + отдельная кнопка Админ 👑.
-    """
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -81,11 +75,7 @@ def _owner_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# ---------- Публичная функция выбора клавиатуры по роли ----------
 def get_main_keyboard(role: str) -> ReplyKeyboardMarkup:
-    """
-    role: "owner" / "manager" / всё остальное = user.
-    """
     if role == "owner":
         return _owner_keyboard()
     if role == "manager":
