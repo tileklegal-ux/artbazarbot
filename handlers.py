@@ -8,13 +8,17 @@ from aiogram.fsm.state import StatesGroup, State
 from keyboards import language_keyboard, get_main_keyboard
 from database import set_user_language, get_user_language
 from openai_api import analyze_market, pick_niche, recommendations
+
+from navigation import navigation_kb, go_back, go_main_menu
+from limit import check_limit
 from roles_db import get_role
 from premium_db import has_active_premium, get_premium
-from limit import check_limit
 
 
 router = Router()
 
+
+# ---------------- FSM ----------------
 
 class UserStates(StatesGroup):
     await_market = State()
@@ -22,155 +26,94 @@ class UserStates(StatesGroup):
     await_reco = State()
 
 
+# ---------------- Тексты ----------------
+
 def get_texts(user_id: int):
     lang = get_user_language(user_id) or "ru"
 
     if lang == "kg":
         return {
-            "lang_chosen": "Тилди сактап койдум. Эми сен үчүн жардамчы болуп иштейм.",
-            "welcome": (
-                "ArtBazar AI'га кош келиңиз — онлайн сатуучулар үчүн жардамчы.\n\n"
-                "Төмөндөн керектүү функцияны тандаңыз:"
-            ),
-            "ask_market": "Кайсы товар же ниша боюнча рынокту текшергибиз келет? Кыскача жаз.",
-            "ask_niche": "Эмне менен алектенгиң келет? Кыскача сүрөттөп бер.",
-            "ask_reco": "Товар жөнүндө жана кырдаалды сүрөттөп бер, сатуулар боюнча кеңеш берем.",
-            "thinking": "Жооп даярдап жатам… Бул бир аз секундга созулушу мүмкүн ⏳",
-            "margin_soon": "Маржа калькулятору кийинки жаңыланууда кошулат.",
-            "premium_info_no": (
-                "Азыр премиум активдүү эмес.\n\n"
-                "Базалык режимде бардык функция ачык, бирок күнүнө *3 суроо* лимити бар.\n\n"
-                "Премиум режимде:\n"
-                "• суроолорго чектөө жок\n"
-                "• терең анализ\n"
-                "• приоритеттүү жооптор\n\n"
-                "Тарифтер:\n"
-                "• 1 ай — 490 сом\n"
-                "• 6 ай — 1990 сом\n"
-                "• 1 жыл — 2990 сом\n\n"
-                "Менеджер: @Artbazar_support"
-            ),
-            "premium_info_yes": "Сендe активдүү премиум бар: {date} чейин. Пайдалана бер 🚀",
-            "unknown": "Команданы түшүнгөн жокмун. Төмөнкү менюдан баскычтарды колдонуңуз.",
+            "lang_chosen": "Тилди сактап койдум.",
+            "welcome": "ArtBazar AI'га кош келиңиз!",
+            "ask_market": "Кайсы товар боюнча рынокту текшеребиз?",
+            "ask_niche": "Кайсы нишаны караганы жатасыз?",
+            "ask_reco": "Сатуулар боюнча кеңеш керекпи? Товарыңды жаз:",
+            "thinking": "Жооп даярдап жатам…",
+            "margin_soon": "Маржа калькулятору жакында.",
+            "premium_info_no": "Премиум активдүү эмес. 3 суроо лимит.",
+            "premium_info_yes": "Премиум активдүү: {date} чейин.",
+            "unknown": "Түшүнгөн жокмун. Менюдан тандаңыз."
         }
 
     if lang == "kz":
         return {
-            "lang_chosen": "Тілді сақтап қойдым. Енді саған ассистент ретінде жұмыс жасаймын.",
-            "welcome": (
-                "ArtBazar AI — онлайн сатушыларға арналған ассистент.\n\n"
-                "Төменнен қажетті функцияны таңда:"
-            ),
-            "ask_market": "Қай тауар немесе ниша бойынша нарықты талдағымыз келеді? Қысқаша жаз.",
-            "ask_niche": "Немен айналысқың келеді? Қысқаша сипаттап жаз.",
-            "ask_reco": "Тауар және жағдай туралы жаз, сатылым бойынша кеңес беремін.",
-            "thinking": "Жауап дайындап жатырмын… Бірнеше секунд кетуі мүмкін ⏳",
-            "margin_soon": "Маржа калькуляторы келесі жаңартуда қосылады.",
-            "premium_info_no": (
-                "Премиум қосылмаған.\n\n"
-                "Базалық режимде барлық функция ашық, бірақ күніне *3 сұрақ* лимит бар.\n\n"
-                "Премиум режимде:\n"
-                "• шексіз сұрақтар\n"
-                "• терең талдау\n"
-                "• приоритетті жауаптар\n\n"
-                "Тарифтер:\n"
-                "• 1 ай — 490 сом\n"
-                "• 6 ай — 1990 сом\n"
-                "• 1 жыл — 2990 сом\n\n"
-                "Менеджер: @Artbazar_support"
-            ),
-            "premium_info_yes": "Сендe белсенді премиум бар: {date} дейін. Пайдалана бер 🚀",
-            "unknown": "Команданы түсінбедім. Төмендегі менюдегі батырмаларды қолдан.",
+            "lang_chosen": "Тілді сақтап қойдым.",
+            "welcome": "ArtBazar AI — онлайн сатушыларға ассистент!",
+            "ask_market": "Қандай тауар бойынша нарықты талдаймыз?",
+            "ask_niche": "Қандай нишаны ойлап жүрсіз?",
+            "ask_reco": "Сатылым кеңесі үшін тауарды жазыңыз:",
+            "thinking": "Жауап дайындап жатырмын…",
+            "margin_soon": "Маржа калькуляторы жақында.",
+            "premium_info_no": "Премиум белсендірілмеген.",
+            "premium_info_yes": "Премиум белсенді: {date} дейін.",
+            "unknown": "Түсінбедім. Менюді пайдаланыңыз."
         }
 
     return {
-        "lang_chosen": "Я запомнил язык. Теперь буду отвечать для тебя как помощник-продавца.",
-        "welcome": (
-            "Добро пожаловать в ArtBazar AI — ассистент для продавцов онлайн.\n\n"
-            "Выбери нужную функцию ниже:"
-        ),
-        "ask_market": "Опиши товар или нишу, для которой нужен анализ рынка.",
-        "ask_niche": "Опиши, чем хочешь заниматься. Бот оценит нишу.",
-        "ask_reco": "Расскажи о товаре и ситуации, дам рекомендации по продажам.",
-        "thinking": "Думаю над ответом… Это может занять несколько секунд ⏳",
-        "margin_soon": "Калькулятор маржи скоро будет доступен в следующем обновлении.",
-        "premium_info_no": (
-            "Премиум-доступ пока не активирован.\n\n"
-            "В бесплатном тарифе ты можешь сделать *3 запроса в сутки* по любым функциям.\n\n"
-            "В Премиум-доступе:\n"
-            "• безлимитные запросы\n"
-            "• более глубокий анализ\n"
-            "• приоритетная обработка твоих запросов\n\n"
-            "📦 Тарифы:\n"
-            "• 1 месяц — 490 сом\n"
-            "• 6 месяцев — 1990 сом\n"
-            "• 1 год — 2990 сом\n\n"
-            "🧑‍💼 Для подключения напиши менеджеру: @Artbazar_support"
-        ),
-        "premium_info_yes": (
-            "У тебя активный премиум до {date}.\n"
-            "Можешь пользоваться всеми функциями без ограничений 🚀"
-        ),
-        "unknown": "Я не распознал команду. Пользуйся кнопками внизу.",
+        "lang_chosen": "Я запомнил язык.",
+        "welcome": "Добро пожаловать в ArtBazar AI!",
+        "ask_market": "Опиши товар или нишу для анализа:",
+        "ask_niche": "Что хочешь анализировать? Опиши нишу:",
+        "ask_reco": "Опиши товар — дам рекомендации:",
+        "thinking": "Думаю над ответом…",
+        "margin_soon": "Калькулятор маржи скоро.",
+        "premium_info_no": "Премиум не активирован. Лимит — 3 запроса.",
+        "premium_info_yes": "Премиум активен до {date}.",
+        "unknown": "Команда не распознана."
     }
 
 
-# ---------- /start ----------
+# ---------------- СТАРТ ----------------
+
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
-    await message.answer(
-        "Выберите язык / Тилди танданыз / Тілді таңдаңыз:",
-        reply_markup=language_keyboard,
-    )
+    await message.answer("Выберите язык:", reply_markup=language_keyboard)
 
 
-# ---------- Установка языка ----------
-@router.message(F.text == "Русский 🇷🇺")
-async def set_lang_ru(message: Message):
-    user_id = message.from_user.id
-    set_user_language(user_id, "ru")
-    t = get_texts(user_id)
-    role = get_role(user_id)
-    kb = get_main_keyboard(role)
+@router.message(F.text.in_(["Русский 🇷🇺", "Кыргызча 🇰🇬", "Қазақша 🇰🇿"]))
+async def set_language(message: Message):
+    mapping = {
+        "Русский 🇷🇺": "ru",
+        "Кыргызча 🇰🇬": "kg",
+        "Қазақша 🇰🇿": "kz",
+    }
 
-    await message.answer(t["lang_chosen"])
-    await message.answer(t["welcome"], reply_markup=kb)
+    lang = mapping[message.text]
+    set_user_language(message.from_user.id, lang)
 
-
-@router.message(F.text == "Кыргызча 🇰🇬")
-async def set_lang_kg(message: Message):
-    user_id = message.from_user.id
-    set_user_language(user_id, "kg")
-    t = get_texts(user_id)
-    role = get_role(user_id)
-    kb = get_main_keyboard(role)
+    t = get_texts(message.from_user.id)
+    role = get_role(message.from_user.id)
 
     await message.answer(t["lang_chosen"])
-    await message.answer(t["welcome"], reply_markup=kb)
+    await message.answer(t["welcome"], reply_markup=get_main_keyboard(role))
 
 
-@router.message(F.text == "Қазақша 🇰🇿")
-async def set_lang_kz(message: Message):
-    user_id = message.from_user.id
-    set_user_language(user_id, "kz")
-    t = get_texts(user_id)
-    role = get_role(user_id)
-    kb = get_main_keyboard(role)
+# ---------------- АНАЛИЗ РЫНКА ----------------
 
-    await message.answer(t["lang_chosen"])
-    await message.answer(t["welcome"], reply_markup=kb)
-
-
-# ---------- Анализ рынка ----------
 @router.message(F.text == "Анализ рынка 📊")
-async def ask_market_question(message: Message, state: FSMContext):
+async def ask_market(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
     await state.set_state(UserStates.await_market)
-    await message.answer(t["ask_market"])
+    await message.answer(t["ask_market"], reply_markup=navigation_kb)
+
+
+@router.message(UserStates.await_market, F.text == "⬅️ Назад")
+async def back_market(message: Message, state: FSMContext):
+    await go_back(message, state)
 
 
 @router.message(UserStates.await_market)
-async def handle_market_question(message: Message, state: FSMContext):
+async def run_market(message: Message, state: FSMContext):
     ok, msg = check_limit(message.from_user.id)
     if not ok:
         await message.answer(msg, parse_mode="Markdown")
@@ -186,16 +129,22 @@ async def handle_market_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Подбор ниши ----------
+# ---------------- ПОДБОР НИШИ ----------------
+
 @router.message(F.text == "Подбор ниши 🧭")
-async def ask_niche_question(message: Message, state: FSMContext):
+async def ask_niche(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
     await state.set_state(UserStates.await_niche)
-    await message.answer(t["ask_niche"])
+    await message.answer(t["ask_niche"], reply_markup=navigation_kb)
+
+
+@router.message(UserStates.await_niche, F.text == "⬅️ Назад")
+async def back_niche(message: Message, state: FSMContext):
+    await go_back(message, state)
 
 
 @router.message(UserStates.await_niche)
-async def handle_niche_question(message: Message, state: FSMContext):
+async def run_niche(message: Message, state: FSMContext):
     ok, msg = check_limit(message.from_user.id)
     if not ok:
         await message.answer(msg, parse_mode="Markdown")
@@ -211,16 +160,22 @@ async def handle_niche_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Рекомендации ----------
+# ---------------- РЕКОМЕНДАЦИИ ----------------
+
 @router.message(F.text == "Рекомендации ⚡")
-async def ask_reco_question(message: Message, state: FSMContext):
+async def ask_reco(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
     await state.set_state(UserStates.await_reco)
-    await message.answer(t["ask_reco"])
+    await message.answer(t["ask_reco"], reply_markup=navigation_kb)
+
+
+@router.message(UserStates.await_reco, F.text == "⬅️ Назад")
+async def back_reco(message: Message, state: FSMContext):
+    await go_back(message, state)
 
 
 @router.message(UserStates.await_reco)
-async def handle_reco_question(message: Message, state: FSMContext):
+async def run_reco(message: Message, state: FSMContext):
     ok, msg = check_limit(message.from_user.id)
     if not ok:
         await message.answer(msg, parse_mode="Markdown")
@@ -236,68 +191,33 @@ async def handle_reco_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Калькулятор маржи (заглушка) ----------
-@router.message(F.text == "Калькулятор маржи 💰")
-async def margin_stub(message: Message):
-    t = get_texts(message.from_user.id)
-    await message.answer(t["margin_soon"])
+# ---------------- ПРЕМИУМ ----------------
 
-
-# ---------- Премиум ----------
 @router.message(F.text == "Премиум 🚀")
-async def premium_info(message: Message):
+async def premium_block(message: Message):
     uid = message.from_user.id
     t = get_texts(uid)
 
     if has_active_premium(uid):
-        data = get_premium(uid)
-        if data:
-            until_ts, tariff = data
-            dt_str = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
-            text = t["premium_info_yes"].format(date=dt_str)
-            text += f"\n\nТариф: *{tariff}*"
-        else:
-            text = "У тебя активный премиум-доступ. Пользуйся без ограничений 🚀"
-
-        await message.answer(text, parse_mode="Markdown")
+        until_ts, tariff = get_premium(uid)
+        date = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
+        await message.answer(t["premium_info_yes"].format(date=date))
         return
 
-    await message.answer(t["premium_info_no"], parse_mode="Markdown")
+    await message.answer(t["premium_info_no"])
 
 
-# ---------- Админ-кнопка ----------
-@router.message(F.text == "Админ 👑")
-async def admin_button(message: Message):
-    role = get_role(message.from_user.id)
-    if role != "owner":
-        await message.answer("Эта зона только для владельца 👑.")
-        return
+# ---------------- ГЛАВНОЕ МЕНЮ ----------------
 
-    await message.answer(
-        "👑 Админ-панель владельца.\n"
-        "Позже здесь будет управление менеджерами, премиумом и статистикой.\n"
-        "Сейчас это заглушка, но роль и интерфейс уже работают."
-    )
+@router.message(F.text == "🏠 Главное меню")
+async def main_menu(message: Message):
+    await go_main_menu(message)
 
 
-# ---------- Менеджер-кнопка ----------
-@router.message(F.text == "Менеджер 📋")
-async def manager_button(message: Message):
-    role = get_role(message.from_user.id)
-    if role not in ("manager", "owner"):
-        await message.answer("Доступно только менеджеру и владельцу.")
-        return
+# ---------------- ФОЛЛБЭК ----------------
 
-    await message.answer(
-        "📋 Панель менеджера.\n"
-        "Позже здесь будет фиксация оплат, работа с премиум-клиентами и поддержка."
-    )
-
-
-# ---------- Фоллбэк ----------
 @router.message()
 async def fallback(message: Message):
     t = get_texts(message.from_user.id)
     role = get_role(message.from_user.id)
-    kb = get_main_keyboard(role)
-    await message.answer(t["unknown"], reply_markup=kb)
+    await message.answer(t["unknown"], reply_markup=get_main_keyboard(role))
