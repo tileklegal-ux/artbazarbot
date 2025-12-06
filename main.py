@@ -7,11 +7,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 
 from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PATH
-from handlers import router as user_router
-from admin_panel import router as admin_router  # если admin_panel есть
+from handlers import router
 from database import init_db
-from premium_db import init_premium_table
 from roles_db import init_roles_table
+from premium_db import init_premium_table
 from usage_db import init_usage_table
 
 
@@ -19,11 +18,11 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def on_startup(bot: Bot):
-    # Инициализация всех таблиц в одной точке
-    init_db()
-    init_roles_table()
-    init_premium_table()
-    init_usage_table()
+    # Инициализация БД
+    init_db()              # таблица users (язык)
+    init_roles_table()     # таблица roles
+    init_premium_table()   # таблица premium
+    init_usage_table()     # таблица usage_logs
 
     # Ставим webhook в Telegram
     await bot.set_webhook(WEBHOOK_URL)
@@ -40,16 +39,10 @@ async def webhook_handler(request: web.Request) -> web.Response:
     bot: Bot = request.app["bot"]
     dp: Dispatcher = request.app["dp"]
 
-    # 1) Telegram прислал JSON
     data = await request.json()
-
-    # 2) Превращаем JSON в объект Update
     update = Update.model_validate(data)
 
-    # 3) Передаём обновление в aiogram
     await dp.feed_update(bot, update)
-
-    # 4) Отвечаем Telegram "OK"
     return web.Response(text="OK")
 
 
@@ -60,18 +53,14 @@ async def main():
     bot = Bot(BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Роутеры
-    dp.include_router(user_router)
-    dp.include_router(admin_router)
+    dp.include_router(router)
 
-    # HTTP-сервер для webhook
     app = web.Application()
     app["bot"] = bot
     app["dp"] = dp
 
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
 
-    # Стартовые действия
     await on_startup(bot)
 
     runner = web.AppRunner(app)
@@ -87,7 +76,6 @@ async def main():
     logging.info("💡 BOT RUNNING VIA WEBHOOK on 0.0.0.0:8080")
 
     try:
-        # Держим контейнер живым
         await asyncio.Event().wait()
     finally:
         await on_shutdown(bot)
