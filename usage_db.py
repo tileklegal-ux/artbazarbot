@@ -1,41 +1,52 @@
 import sqlite3
+import time
 from datetime import datetime
-from typing import List, Tuple
 
 from config import DB_PATH
 
 
-def init_usage_table():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+def get_connection() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH)
 
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS usage_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        ts INTEGER NOT NULL
+
+def init_usage_table() -> None:
+    """
+    Таблица usage_logs:
+    - id        — PK
+    - user_id   — Telegram ID
+    - action    — тип действия (analyze / niche / reco / margin / etc.)
+    - timestamp — UNIX-время (int)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS usage_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            timestamp INTEGER NOT NULL
+        )
+        """
     )
-    """)
 
     conn.commit()
     conn.close()
 
 
-def _today_str() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
+def log_usage(user_id: int, action: str = "request") -> None:
+    """
+    Логируем один запрос пользователя.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
 
+    now_ts = int(time.time())
 
-def log_usage(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    date = _today_str()
-    ts = int(datetime.utcnow().timestamp())
-
-    c.execute(
-        "INSERT INTO usage_logs (user_id, date, ts) VALUES (?, ?, ?)",
-        (user_id, date, ts),
+    cursor.execute(
+        "INSERT INTO usage_logs (user_id, action, timestamp) VALUES (?, ?, ?)",
+        (user_id, action, now_ts),
     )
 
     conn.commit()
@@ -43,34 +54,45 @@ def log_usage(user_id: int):
 
 
 def get_today_usage(user_id: int) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    """
+    Количество запросов за текущие сутки (по локальному времени сервера).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    date = _today_str()
-    c.execute(
-        "SELECT COUNT(*) FROM usage_logs WHERE user_id = ? AND date = ?",
-        (user_id, date),
+    start_of_day = datetime.now().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).timestamp()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM usage_logs WHERE user_id = ? AND timestamp >= ?",
+        (user_id, int(start_of_day)),
     )
-    row = c.fetchone()
+    count = cursor.fetchone()[0]
+
     conn.close()
+    return count
 
-    return row[0] if row else 0
 
-
-def get_last_requests(user_id: int, limit: int = 20) -> List[Tuple[int, str, int]]:
+def get_recent_usage(user_id: int, limit: int = 10):
     """
-    Возвращает последние N записей по пользователю:
-    (id, date, ts)
+    Последние N запросов пользователя (для личного кабинета).
+    Возвращаем список кортежей (action, timestamp).
     """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    c.execute(
-        "SELECT id, date, ts FROM usage_logs "
-        "WHERE user_id = ? ORDER BY ts DESC LIMIT ?",
+    cursor.execute(
+        """
+        SELECT action, timestamp
+        FROM usage_logs
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
         (user_id, limit),
     )
-    rows = c.fetchall()
-    conn.close()
+    rows = cursor.fetchall()
 
+    conn.close()
     return rows
