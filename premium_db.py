@@ -1,38 +1,74 @@
-@router.message(F.text == "Премиум 🚀")
-async def premium_info(message: Message):
-    uid = message.from_user.id
+import sqlite3
+import time
 
-    # Если премиум активен
-    if has_active_premium(uid):
-        until_ts, tariff = get_premium(uid)
-        dt = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
+DB_PATH = "database.db"
 
-        text = (
-            "🚀 *У тебя активен Премиум-доступ*\n\n"
-            f"Тариф: *{tariff}*\n"
-            f"Действует до: *{dt}*\n\n"
-            "Используй все функции без ограничений ❤️"
+
+def init_premium_table():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS premium_access (
+            user_id INTEGER PRIMARY KEY,
+            until INTEGER NOT NULL,
+            tariff TEXT
         )
-        await message.answer(text, parse_mode="Markdown")
-        return
-
-    # Если премиума нет — продаём
-    text = (
-        "⚡ *Премиум-доступ ArtBazar AI*\n\n"
-        "В бесплатном тарифе все функции доступны, но действует лимит — "
-        "*3 запроса в сутки*.\n\n"
-        "Премиум снимает все ограничения:\n"
-        "• неограниченные запросы\n"
-        "• приоритетная очередь\n"
-        "• быстрые и расширенные ответы\n\n"
-        "📦 *Тарифы (ручная активация):*\n"
-        "• 1 месяц — *490 сом*\n"
-        "• 6 месяцев — *1990 сом*\n"
-        "• 1 год — *2990 сом*\n\n"
-        "🧾 После оплаты менеджер вручную включает Премиум.\n"
-        "Отправь чек менеджеру:\n\n"
-        "🧑‍💼 *Менеджер:* @Artbazar_support\n"
-        "Активация занимает 1–5 минут."
+        """
     )
 
-    await message.answer(text, parse_mode="Markdown")
+    conn.commit()
+    conn.close()
+
+
+def set_premium(user_id: int, days: int, tariff: str):
+    until = int(time.time()) + days * 24 * 3600
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO premium_access (user_id, until, tariff)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET until=excluded.until, tariff=excluded.tariff
+        """,
+        (user_id, until, tariff),
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def has_active_premium(user_id: int) -> bool:
+    now = int(time.time())
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT until FROM premium_access WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+
+    conn.close()
+
+    if not row:
+        return False
+
+    return row[0] > now
+
+
+def get_premium(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT until, tariff FROM premium_access WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+
+    conn.close()
+    return row
