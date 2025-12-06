@@ -27,6 +27,13 @@ class UserStates(StatesGroup):
     await_niche = State()
     await_reco = State()
 
+    await_margin_purchase = State()
+    await_margin_shipping = State()
+    await_margin_marketing = State()
+    await_margin_other = State()
+    await_margin_fee = State()
+    await_margin_price = State()
+
 
 # ---------------- СТАРТ И ЯЗЫК ----------------
 
@@ -155,12 +162,157 @@ async def run_reco(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------------- КАЛЬКУЛЯТОР МАРЖИ ----------------
+# ---------------- КАЛЬКУЛЯТОР МАРЖИ (PRO) ----------------
+
+def _parse_number(text: str):
+    text = text.replace(",", ".").strip()
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
 
 @router.message(F.text == "Калькулятор маржи 💰")
-async def margin_calc(message: Message):
+async def margin_start(message: Message, state: FSMContext):
     uid = message.from_user.id
-    await message.answer(get_text(uid, "margin_soon"))
+    await state.set_state(UserStates.await_margin_purchase)
+    await message.answer(get_text(uid, "margin_start"), reply_markup=navigation_kb)
+    await message.answer(get_text(uid, "margin_ask_purchase"))
+
+
+@router.message(UserStates.await_margin_purchase, F.text == "⬅️ Назад")
+@router.message(UserStates.await_margin_shipping, F.text == "⬅️ Назад")
+@router.message(UserStates.await_margin_marketing, F.text == "⬅️ Назад")
+@router.message(UserStates.await_margin_other, F.text == "⬅️ Назад")
+@router.message(UserStates.await_margin_fee, F.text == "⬅️ Назад")
+@router.message(UserStates.await_margin_price, F.text == "⬅️ Назад")
+async def margin_back_any(message: Message, state: FSMContext):
+    await go_back(message, state)
+
+
+@router.message(UserStates.await_margin_purchase)
+async def margin_purchase(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    value = _parse_number(message.text)
+    if value is None:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    await state.update_data(purchase=value)
+    await state.set_state(UserStates.await_margin_shipping)
+    await message.answer(get_text(uid, "margin_ask_shipping"))
+
+
+@router.message(UserStates.await_margin_shipping)
+async def margin_shipping(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    value = _parse_number(message.text)
+    if value is None:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    await state.update_data(shipping=value)
+    await state.set_state(UserStates.await_margin_marketing)
+    await message.answer(get_text(uid, "margin_ask_marketing"))
+
+
+@router.message(UserStates.await_margin_marketing)
+async def margin_marketing(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    value = _parse_number(message.text)
+    if value is None:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    await state.update_data(marketing=value)
+    await state.set_state(UserStates.await_margin_other)
+    await message.answer(get_text(uid, "margin_ask_other"))
+
+
+@router.message(UserStates.await_margin_other)
+async def margin_other(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    value = _parse_number(message.text)
+    if value is None:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    await state.update_data(other=value)
+    await state.set_state(UserStates.await_margin_fee)
+    await message.answer(get_text(uid, "margin_ask_fee"))
+
+
+@router.message(UserStates.await_margin_fee)
+async def margin_fee(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    value = _parse_number(message.text)
+    if value is None:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    if value < 0 or value > 80:
+        # защита от странных значений
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    await state.update_data(fee=value)
+    await state.set_state(UserStates.await_margin_price)
+    await message.answer(get_text(uid, "margin_ask_price"))
+
+
+@router.message(UserStates.await_margin_price)
+async def margin_price(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    price = _parse_number(message.text)
+    if price is None or price <= 0:
+        await message.answer(get_text(uid, "margin_invalid_number"))
+        return
+
+    data = await state.get_data()
+    purchase = data.get("purchase", 0.0)
+    shipping = data.get("shipping", 0.0)
+    marketing = data.get("marketing", 0.0)
+    other = data.get("other", 0.0)
+    fee_percent = data.get("fee", 0.0)
+
+    # расчёты
+    cost_no_fee = purchase + shipping + marketing + other
+    fee_rate = fee_percent / 100.0
+    commission = price * fee_rate
+    total_cost = cost_no_fee + commission
+    profit = price - total_cost
+
+    margin_pct = (profit / price * 100.0) if price > 0 else 0.0
+    roi_pct = (profit / total_cost * 100.0) if total_cost > 0 else 0.0
+
+    # точка безубыточности (цена, при которой прибыль 0)
+    if fee_rate < 1.0:
+        breakeven_price = cost_no_fee / (1.0 - fee_rate)
+    else:
+        breakeven_price = 0.0
+
+    # рекомендуемая цена для ~30% маржи
+    target_margin = 0.30
+    denom = 1.0 - target_margin - fee_rate
+    if denom > 0:
+        target_price = cost_no_fee / denom
+    else:
+        target_price = 0.0
+
+    text = get_text(uid, "margin_result").format(
+        cost_no_fee=cost_no_fee,
+        fee_amount=commission,
+        total_cost=total_cost,
+        price=price,
+        profit=profit,
+        margin_pct=margin_pct,
+        roi_pct=roi_pct,
+        breakeven_price=breakeven_price,
+        target_price=target_price,
+    )
+
+    await message.answer(text)
+    await state.clear()
 
 
 # ---------------- ПРЕМИУМ ----------------
@@ -193,7 +345,6 @@ async def user_cabinet(message: Message):
         until_ts, tariff = get_premium(uid)
         date = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
 
-        # Сколько осталось дней
         days_left = (until_ts - int(datetime.now().timestamp())) // 86400
         parts.append(get_text(uid, "cabinet_tariff").format(tariff=tariff, date=date, days=days_left))
     else:
@@ -202,7 +353,6 @@ async def user_cabinet(message: Message):
     # лимиты
     today_used = get_today_usage(uid)
     left = 3 - today_used if today_used < 3 else 0
-
     parts.append(get_text(uid, "cabinet_usage_today").format(used=today_used, left=left))
 
     # история
