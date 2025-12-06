@@ -1,18 +1,17 @@
 import os
 
-# Токен бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Вебхук (должен совпадать с тем, что в Fly)
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/") + WEBHOOK_PATH
+# Путь к базе данных
+DB_PATH = "database.db"
 
-# БД
-DB_PATH = os.getenv("DB_PATH", "database.db")
+# IDs владельца и менеджера
+OWNER_ID = 1974482384
+MANAGER_ID = 571499876
 
-# Владелец по умолчанию (первичный OWNER, записываем в БД при старте)
-# ← сюда ставим твой Telegram ID
-OWNER_ID = int(os.getenv("OWNER_ID", "1974482384"))
+# usernames (не обязательны, но рекомендуются)
+OWNER_USERNAME = "@ihaariss"
+MANAGER_USERNAME = "@Artbazar_support"
 
-# (опционально) дефолтный менеджер — можно не использовать
-DEFAULT_MANAGER_ID = os.getenv("DEFAULT_MANAGER_ID")
+# OpenAI API ключ
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
