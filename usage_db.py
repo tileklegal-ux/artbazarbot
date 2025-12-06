@@ -1,35 +1,41 @@
 import sqlite3
-import time
 from datetime import datetime
+from typing import List, Tuple
 
-DB_PATH = "database.db"
+from config import DB_PATH
 
 
 def init_usage_table():
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    c = conn.cursor()
 
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS usage_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL
-        )
-        """
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS usage_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        ts INTEGER NOT NULL
     )
+    """)
 
     conn.commit()
     conn.close()
 
 
+def _today_str() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+
 def log_usage(user_id: int):
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    c = conn.cursor()
 
-    cursor.execute(
-        "INSERT INTO usage_logs (user_id, timestamp) VALUES (?, ?)",
-        (user_id, int(time.time())),
+    date = _today_str()
+    ts = int(datetime.utcnow().timestamp())
+
+    c.execute(
+        "INSERT INTO usage_logs (user_id, date, ts) VALUES (?, ?, ?)",
+        (user_id, date, ts),
     )
 
     conn.commit()
@@ -38,17 +44,33 @@ def log_usage(user_id: int):
 
 def get_today_usage(user_id: int) -> int:
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    c = conn.cursor()
 
-    start_of_day = datetime.now().replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ).timestamp()
-
-    cursor.execute(
-        "SELECT COUNT(*) FROM usage_logs WHERE user_id = ? AND timestamp >= ?",
-        (user_id, start_of_day),
+    date = _today_str()
+    c.execute(
+        "SELECT COUNT(*) FROM usage_logs WHERE user_id = ? AND date = ?",
+        (user_id, date),
     )
-    count = cursor.fetchone()[0]
-
+    row = c.fetchone()
     conn.close()
-    return count
+
+    return row[0] if row else 0
+
+
+def get_last_requests(user_id: int, limit: int = 20) -> List[Tuple[int, str, int]]:
+    """
+    Возвращает последние N записей по пользователю:
+    (id, date, ts)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    c.execute(
+        "SELECT id, date, ts FROM usage_logs "
+        "WHERE user_id = ? ORDER BY ts DESC LIMIT ?",
+        (user_id, limit),
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    return rows
