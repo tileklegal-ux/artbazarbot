@@ -14,6 +14,7 @@ from limit import check_limit
 from roles_db import get_role
 from premium_db import has_active_premium, get_premium
 from utils import get_text
+from usage_db import get_today_usage, get_last_requests
 
 
 router = Router()
@@ -175,6 +176,41 @@ async def premium_block(message: Message):
         return
 
     await message.answer(get_text(uid, "premium_info_no"), parse_mode="Markdown")
+
+
+# ---------------- ЛИЧНЫЙ КАБИНЕТ ----------------
+
+@router.message(F.text == "Личный кабинет 👤")
+async def user_cabinet(message: Message):
+    uid = message.from_user.id
+
+    parts: list[str] = []
+    parts.append(get_text(uid, "cabinet_title"))
+
+    # Статус премиума
+    if has_active_premium(uid):
+        until_ts, tariff = get_premium(uid)
+        date = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y") if until_ts else "—"
+        parts.append(get_text(uid, "premium_info_yes").format(date=date))
+    else:
+        parts.append(get_text(uid, "cabinet_status_free"))
+
+    # Использование за сегодня
+    today_count = get_today_usage(uid)
+    parts.append(get_text(uid, "cabinet_usage_today").format(count=today_count))
+
+    # История запросов
+    rows = get_last_requests(uid, limit=10)
+    if rows:
+        parts.append(get_text(uid, "cabinet_history_header"))
+        for _id, date_str, ts in rows:
+            dt = datetime.fromtimestamp(ts)
+            parts.append(f"• {dt.strftime('%d.%m.%Y %H:%M')}")
+    else:
+        parts.append(get_text(uid, "cabinet_history_empty"))
+
+    text = "\n\n".join(parts)
+    await message.answer(text)
 
 
 # ---------------- ГЛАВНОЕ МЕНЮ ----------------
