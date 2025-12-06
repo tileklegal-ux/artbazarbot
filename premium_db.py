@@ -1,67 +1,38 @@
-import sqlite3
-import time
-from typing import Optional, Tuple
+@router.message(F.text == "Премиум 🚀")
+async def premium_info(message: Message):
+    t = get_texts(message.from_user.id)
+    uid = message.from_user.id
 
-from config import DB_PATH
+    # Если премиум есть
+    if has_active_premium(uid):
+        until_ts, tariff = get_premium(uid)
+        dt = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
 
-
-def _conn():
-    return sqlite3.connect(DB_PATH)
-
-
-def init_premium_table():
-    conn = _conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS premium (
-            user_id     INTEGER PRIMARY KEY,
-            until_ts    INTEGER NOT NULL,
-            tariff      TEXT,
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        text = (
+            f"🚀 У тебя активный Премиум-доступ.\n"
+            f"Действует до: *{dt}*\n"
+            f"Тариф: *{tariff}*\n\n"
+            f"Ты можешь пользоваться всеми функциями без ограничений ❤️"
         )
-        """
+        await message.answer(text, parse_mode="Markdown")
+        return
+
+    # Если премиума НЕТ — продаём
+    text = (
+        "🚀 *Премиум-доступ ArtBazar AI*\n\n"
+        "Премиум открывает полный доступ без ограничений:\n"
+        "• мгновенные ответы\n"
+        "• глубокий анализ товара\n"
+        "• расширенная аналитика ниши и рынка\n"
+        "• приоритетная очередь\n\n"
+        "📌 *Тарифы (ручная активация):*\n"
+        "• 1 месяц — *490 сом*\n"
+        "• 6 месяцев — *1990 сом*\n"
+        "• 1 год — *2990 сом*\n\n"
+        "🧾 После оплаты менеджер вручную включает премиум.\n"
+        "Отправь чек менеджеру, чтобы активировать доступ.\n\n"
+        "🧑‍💼 *Менеджер:* @Artbazar_support\n"
+        "Оплата проходит быстро, активация — в течение 1–5 минут."
     )
-    conn.commit()
-    conn.close()
 
-
-def set_premium(user_id: int, days: int, tariff: str) -> None:
-    until_ts = int(time.time()) + days * 24 * 60 * 60
-
-    conn = _conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO premium(user_id, until_ts, tariff)
-        VALUES(?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            until_ts = excluded.until_ts,
-            tariff   = excluded.tariff
-        """,
-        (user_id, until_ts, tariff),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_premium(user_id: int) -> Optional[Tuple[int, str]]:
-    conn = _conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT until_ts, tariff FROM premium WHERE user_id = ?",
-        (user_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return int(row[0]), row[1]
-
-
-def has_active_premium(user_id: int) -> bool:
-    data = get_premium(user_id)
-    if not data:
-        return False
-    until_ts, _ = data
-    return until_ts > int(time.time())
+    await message.answer(text, parse_mode="Markdown")
