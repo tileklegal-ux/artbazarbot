@@ -1,156 +1,134 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
-from admin_keyboards import owner_admin_kb, manager_admin_kb
-from keyboards import get_main_keyboard
-from roles_db import is_owner, is_manager, set_role, list_managers, get_role, ROLE_MANAGER
-from premium_db import has_active_premium, get_premium, set_premium
+from roles_db import is_owner, is_manager
+from navigation import go_main_menu, navigation_kb
+from premium_db import set_premium
 
 router = Router()
 
 
-# ---------- вход в панели ----------
+# ---------- КЛАВИАТУРЫ ----------
+
+owner_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Выдать премиум 🎁")],
+        [KeyboardButton(text="🏠 Главное меню")]
+    ],
+    resize_keyboard=True
+)
+
+manager_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Выдать премиум 🎁")],
+        [KeyboardButton(text="🏠 Главное меню")]
+    ],
+    resize_keyboard=True
+)
+
+
+# ---------- FSM для выдачи премиума ----------
+
+class PremiumFSM(StatesGroup):
+    waiting_user_id = State()
+    waiting_tariff = State()
+
+
+# ---------- ВХОД В ПАНЕЛЬ ----------
 
 @router.message(F.text == "Админ 👑")
-async def enter_owner_panel(message: Message):
+async def owner_panel(message: Message):
     if not is_owner(message.from_user.id):
-        await message.answer("У тебя нет прав владельца.")
         return
-
-    await message.answer(
-        "👑 Панель владельца. Здесь можно управлять менеджерами и премиум-доступом.",
-        reply_markup=owner_admin_kb,
-    )
+    await message.answer("Панель владельца:", reply_markup=owner_kb)
 
 
 @router.message(F.text == "Менеджер 📋")
-async def enter_manager_panel(message: Message):
+async def manager_panel(message: Message):
     if not is_manager(message.from_user.id):
-        await message.answer("Доступно только менеджерам и владельцу.")
         return
-
-    await message.answer(
-        "📋 Панель менеджера. Работа с премиум-клиентами и поддержкой.",
-        reply_markup=manager_admin_kb,
-    )
+    await message.answer("Панель менеджера:", reply_markup=manager_kb)
 
 
-# ---------- возврат в главное меню ----------
-
-@router.message(F.text == "⬅️ В главное меню")
-async def back_to_main(message: Message):
-    from roles_db import get_role  # локальный импорт, чтобы избежать циклов
-
-    role = get_role(message.from_user.id)
-    kb = get_main_keyboard(role)
-    await message.answer("Возвращаю основное меню.", reply_markup=kb)
-
-
-# ---------- премиум: выдача (упрощённо через reply) ----------
+# ---------- ВЫДАЧА ПРЕМИУМА ----------
 
 @router.message(F.text == "Выдать премиум 🎁")
-async def stub_give_premium(message: Message):
-    """
-    Пока делаем заглушку: объясняем, как выдать премиум вручную.
-    Реальную FSM для ввода ID и тарифа можно докрутить позже.
-    """
-    await message.answer(
-        "Пока выдача премиума делается вручную через команду:\n\n"
-        "/gift_premium user_id days тариф\n\n"
-        "Пример: /gift_premium 123456789 30 '1 месяц'."
-    )
-
-
-@router.message(F.text == "Список премиум 👥")
-async def list_premium_stub(message: Message):
-    await message.answer(
-        "Список премиум-клиентов пока не выведен в интерфейс.\n"
-        "Позже сделаем отдельный экран со списком."
-    )
-
-
-# ---------- команды, которыми реально можно пользоваться уже сейчас ----------
-
-@router.message(F.text.startswith("/gift_premium"))
-async def cmd_gift_premium(message: Message):
-    """
-    /gift_premium user_id days тариф
-    Доступно только владельцу.
-    """
-    if not is_owner(message.from_user.id):
-        await message.answer("Только владелец может дарить премиум этой командой.")
+async def start_premium(message: Message, state: FSMContext):
+    if not (is_owner(message.from_user.id) or is_manager(message.from_user.id)):
         return
 
-    parts = message.text.split(maxsplit=3)
-    if len(parts) < 4:
-        await message.answer(
-            "Формат: /gift_premium user_id days тариф\n"
-            "Пример: /gift_premium 123456789 30 1_месяц"
-        )
-        return
+    await state.set_state(PremiumFSM.waiting_user_id)
+    await message.answer("Введите ID пользователя:", reply_markup=navigation_kb)
 
+
+@router.message(PremiumFSM.waiting_user_id, F.text == "⬅️ Назад")
+async def back_from_userid(message: Message, state: FSMContext):
+    await state.clear()
+    await go_main_menu(message)
+
+
+@router.message(PremiumFSM.waiting_user_id)
+async def premium_userid(message: Message, state: FSMContext):
     try:
-        target_id = int(parts[1])
-        days = int(parts[2])
-        tariff = parts[3]
-    except ValueError:
-        await message.answer("user_id и days должны быть числами.")
+        uid = int(message.text)
+    except:
+        await message.answer("ID должно быть числом.")
         return
 
-    set_premium(target_id, days, tariff)
+    await state.update_data(uid=uid)
+    await state.set_state(PremiumFSM.waiting_tariff)
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="1 месяц")],
+            [KeyboardButton(text="6 месяцев")],
+            [KeyboardButton(text="12 месяцев")],
+            [KeyboardButton(text="⬅️ Назад")]
+        ],
+        resize_keyboard=True
+    )
+
+    await message.answer("Выберите тариф:", reply_markup=kb)
+
+
+@router.message(PremiumFSM.waiting_tariff, F.text == "⬅️ Назад")
+async def back_from_tariff(message: Message, state: FSMContext):
+    await start_premium(message, state)
+
+
+@router.message(PremiumFSM.waiting_tariff)
+async def premium_choose_tariff(message: Message, state: FSMContext):
+    tariff_map = {
+        "1 месяц": 30,
+        "6 месяцев": 180,
+        "12 месяцев": 365
+    }
+
+    if message.text not in tariff_map:
+        await message.answer("Выберите кнопку.")
+        return
+
+    days = tariff_map[message.text]
+    data = await state.get_data()
+    uid = data["uid"]
+
+    until = set_premium(uid, days, message.text)
+
+    await state.clear()
+
     await message.answer(
-        f"Премиум на {days} дней ({tariff}) выдан пользователю {target_id}."
+        f"Премиум выдан пользователю {uid}\n"
+        f"Тариф: {message.text}\n"
+        f"Действует до: <b>{until}</b>",
+        parse_mode="HTML",
+        reply_markup=manager_kb if is_manager(message.from_user.id) else owner_kb
     )
 
 
-# ---------- управление менеджерами (через команды) ----------
+# ---------- ГЛАВНОЕ МЕНЮ ----------
 
-@router.message(F.text == "Добавить менеджера ➕")
-async def hint_add_manager(message: Message):
-    if not is_owner(message.from_user.id):
-        await message.answer("Только владелец может назначать менеджеров.")
-        return
-
-    await message.answer(
-        "Чтобы назначить менеджера, используй команду:\n\n"
-        "/add_manager user_id\n\n"
-        "Позже сделаем это через кнопки."
-    )
-
-
-@router.message(F.text == "Список менеджеров 📋")
-async def show_managers(message: Message):
-    if not is_owner(message.from_user.id):
-        await message.answer("Только владелец может смотреть список менеджеров.")
-        return
-
-    managers = list_managers()
-    if not managers:
-        await message.answer("Пока нет менеджеров.")
-        return
-
-    lines = []
-    for uid, role in managers:
-        lines.append(f"{uid} — {role}")
-    await message.answer("Менеджеры и владельцы:\n" + "\n".join(lines))
-
-
-@router.message(F.text.startswith("/add_manager"))
-async def cmd_add_manager(message: Message):
-    if not is_owner(message.from_user.id):
-        await message.answer("Только владелец может назначать менеджеров.")
-        return
-
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Формат: /add_manager user_id")
-        return
-
-    try:
-        target_id = int(parts[1])
-    except ValueError:
-        await message.answer("user_id должен быть числом.")
-        return
-
-    set_role(target_id, ROLE_MANAGER)
-    await message.answer(f"Пользователь {target_id} назначен менеджером.")
+@router.message(F.text == "🏠 Главное меню")
+async def back_to_menu(message: Message):
+    await go_main_menu(message)
