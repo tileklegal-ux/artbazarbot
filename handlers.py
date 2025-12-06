@@ -185,27 +185,33 @@ async def user_cabinet(message: Message):
     uid = message.from_user.id
 
     parts: list[str] = []
+
     parts.append(get_text(uid, "cabinet_title"))
 
-    # Статус премиума
+    # статус премиума
     if has_active_premium(uid):
         until_ts, tariff = get_premium(uid)
-        date = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y") if until_ts else "—"
-        parts.append(get_text(uid, "premium_info_yes").format(date=date))
+        date = datetime.fromtimestamp(until_ts).strftime("%d.%m.%Y")
+
+        # Сколько осталось дней
+        days_left = (until_ts - int(datetime.now().timestamp())) // 86400
+        parts.append(get_text(uid, "cabinet_tariff").format(tariff=tariff, date=date, days=days_left))
     else:
         parts.append(get_text(uid, "cabinet_status_free"))
 
-    # Использование за сегодня
-    today_count = get_today_usage(uid)
-    parts.append(get_text(uid, "cabinet_usage_today").format(count=today_count))
+    # лимиты
+    today_used = get_today_usage(uid)
+    left = 3 - today_used if today_used < 3 else 0
 
-    # История запросов
+    parts.append(get_text(uid, "cabinet_usage_today").format(used=today_used, left=left))
+
+    # история
     rows = get_last_requests(uid, limit=10)
     if rows:
         parts.append(get_text(uid, "cabinet_history_header"))
         for _id, date_str, ts in rows:
-            dt = datetime.fromtimestamp(ts)
-            parts.append(f"• {dt.strftime('%d.%m.%Y %H:%M')}")
+            dt = datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M")
+            parts.append(f"• {dt}")
     else:
         parts.append(get_text(uid, "cabinet_history_empty"))
 
