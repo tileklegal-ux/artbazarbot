@@ -24,7 +24,6 @@ def init_usage_table():
 
 
 def log_usage(user_id: int):
-    """Записываем факт использования функции (один запрос)."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -38,7 +37,6 @@ def log_usage(user_id: int):
 
 
 def get_today_usage(user_id: int) -> int:
-    """Сколько запросов сделал пользователь за текущие сутки."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
