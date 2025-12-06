@@ -12,16 +12,24 @@ def check_limit(user_id: int):
       (False, text) — лимит превышен, text содержит сообщение для пользователя
     """
 
-    # Премиум — без ограничений
+    # Премиум — без ограничений, но всё равно логируем
     if has_active_premium(user_id):
         log_usage(user_id)
         return True, None
 
-    used = get_today_usage(user_id)
+    # Считаем usage за сегодня
+    used_today = get_today_usage(user_id)
 
-    if used >= DAILY_LIMIT:
-        return False, get_text(user_id, "premium_info_no")
+    if used_today >= DAILY_LIMIT:
+        # Лимит превышен — сообщение берём из языковых словарей
+        template = get_text(user_id, "limit_exceeded")
+        # Поддерживаем подстановку чисел, если она есть в строке
+        try:
+            msg = template.format(limit=DAILY_LIMIT, used=used_today)
+        except Exception:
+            msg = template
+        return False, msg
 
-    # Лимит не превышен — считаем запрос
+    # Лимит не превышен — логируем запрос
     log_usage(user_id)
     return True, None
