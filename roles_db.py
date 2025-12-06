@@ -3,9 +3,9 @@ from typing import List, Tuple
 
 from config import DB_PATH, OWNER_ID, MANAGER_ID
 
-ROLE_USER = "user"
-ROLE_MANAGER = "manager"
 ROLE_OWNER = "owner"
+ROLE_MANAGER = "manager"
+ROLE_USER = "user"
 
 
 def get_connection() -> sqlite3.Connection:
@@ -14,8 +14,9 @@ def get_connection() -> sqlite3.Connection:
 
 def init_roles_table() -> None:
     """
-    Инициализация таблицы ролей.
-    Плюс гарантируем, что владелец и дефолтный менеджер записаны в БД.
+    Таблица roles:
+    - user_id  — PK
+    - role     — 'owner' / 'manager' / 'user'
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -28,20 +29,42 @@ def init_roles_table() -> None:
         )
         """
     )
+
     conn.commit()
+
+    # гарантируем, что владелец и базовый менеджер заданы
+    _ensure_default_roles(conn)
+
     conn.close()
 
-    # Обновляем (или создаём) записи для владельца и менеджера
-    if OWNER_ID:
-        set_role(OWNER_ID, ROLE_OWNER)
-    if MANAGER_ID:
-        set_role(MANAGER_ID, ROLE_MANAGER)
+
+def _ensure_default_roles(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    # владелец
+    cursor.execute(
+        """
+        INSERT INTO roles (user_id, role)
+        VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET role = excluded.role
+        """,
+        (OWNER_ID, ROLE_OWNER),
+    )
+    # базовый менеджер
+    cursor.execute(
+        """
+        INSERT INTO roles (user_id, role)
+        VALUES (?, ?)
+        ON CONFLICT(user_id) DO NOTHING
+        """,
+        (MANAGER_ID, ROLE_MANAGER),
+    )
+    conn.commit()
 
 
 def set_role(user_id: int, role: str) -> None:
-    """
-    Установить/обновить роль пользователя.
-    """
+    if role not in (ROLE_OWNER, ROLE_MANAGER, ROLE_USER):
+        role = ROLE_USER
+
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -60,14 +83,13 @@ def set_role(user_id: int, role: str) -> None:
 
 def get_role(user_id: int) -> str:
     """
-    Получить роль пользователя.
-
-    Приоритет:
-    1) Если явно записана в таблицу — берём её.
-    2) Если user_id совпадает с OWNER_ID — owner.
-    3) Если user_id совпадает с MANAGER_ID — manager.
-    4) Иначе — обычный user.
+    Возвращает роль пользователя.
+    Для OWNER_ID по умолчанию всегда 'owner'.
+    Для остальных — чтение из таблицы, если нет — 'user'.
     """
+    if user_id == OWNER_ID:
+        return ROLE_OWNER
+
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -82,24 +104,16 @@ def get_role(user_id: int) -> str:
     if row and row[0]:
         return row[0]
 
-    if user_id == OWNER_ID:
-        return ROLE_OWNER
-    if user_id == MANAGER_ID:
-        return ROLE_MANAGER
-
     return ROLE_USER
 
 
 def is_owner(user_id: int) -> bool:
-    """
-    Владелец — это тот, у кого роль owner ИЛИ ID совпадает с OWNER_ID.
-    """
-    return user_id == OWNER_ID or get_role(user_id) == ROLE_OWNER
+    return get_role(user_id) == ROLE_OWNER
 
 
 def is_manager(user_id: int) -> bool:
     """
-    Менеджер — роль manager, но владелец тоже имеет доступ как менеджер.
+    Менеджером считаем как менеджера, так и владельца.
     """
     role = get_role(user_id)
     return role in (ROLE_MANAGER, ROLE_OWNER)
@@ -107,15 +121,19 @@ def is_manager(user_id: int) -> bool:
 
 def list_managers() -> List[Tuple[int, str]]:
     """
-    Список всех менеджеров и владельцев из таблицы ролей.
-    Возвращает список (user_id, role).
+    Возвращает список (user_id, role) для менеджеров и владельца.
     """
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT user_id, role FROM roles WHERE role IN (?, ?)",
-        (ROLE_MANAGER, ROLE_OWNER),
+        """
+        SELECT user_id, role
+        FROM roles
+        WHERE role IN (?, ?)
+        ORDER BY role DESC
+        """,
+        (ROLE_OWNER, ROLE_MANAGER),
     )
     rows = cursor.fetchall()
 
