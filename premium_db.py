@@ -1,6 +1,6 @@
 import sqlite3
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from config import DB_PATH
 
@@ -104,3 +104,42 @@ def set_premium(user_id: int, days: int, tariff: str) -> None:
 
     conn.commit()
     conn.close()
+
+
+def list_premium_users(active_only: bool = True, limit: int = 50) -> List[Tuple[int, int, str]]:
+    """
+    Возвращает список премиум-пользователей.
+    Элементы списка: (user_id, until, tariff).
+
+    active_only = True  -> только те, у кого премиум ещё не истёк.
+    active_only = False -> все записи.
+    """
+    now_ts = int(time.time())
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if active_only:
+        cursor.execute(
+            """
+            SELECT user_id, until, tariff
+            FROM premium
+            WHERE until > ?
+            ORDER BY until DESC
+            LIMIT ?
+            """,
+            (now_ts, limit),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT user_id, until, tariff
+            FROM premium
+            ORDER BY until DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
