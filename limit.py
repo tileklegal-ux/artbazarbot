@@ -17,16 +17,15 @@ def check_limit(user_id: int):
         log_usage(user_id)
         return True, None
 
-    # Считаем usage за сегодня
     used_today = get_today_usage(user_id)
 
     if used_today >= DAILY_LIMIT:
-        # Лимит превышен — сообщение берём из языковых словарей
+        # Текст из messages_xx по языку пользователя
         template = get_text(user_id, "limit_exceeded")
-        # Поддерживаем подстановку чисел, если она есть в строке
         try:
             msg = template.format(limit=DAILY_LIMIT, used=used_today)
         except Exception:
+            # если вдруг нет плейсхолдеров — просто отправляем строку как есть
             msg = template
         return False, msg
 
