@@ -7,7 +7,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 
 from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PATH
-from handlers import router
+from handlers import router as user_router
+from admin_panel import router as admin_router
 from database import init_db
 from roles_db import init_roles_table
 from premium_db import init_premium_table
@@ -16,62 +17,83 @@ from usage_db import init_usage_table
 logging.basicConfig(level=logging.INFO)
 
 
-async def on_startup(bot: Bot):
+async def handle(request: web.Request) -> web.Response:
+    """
+    Основной хэндлер вебхука: принимает апдейт от Telegram и передаёт его в aiogram.
+    """
+    data = await request.json()
+    update = Update.model_validate(data)
+
+    bot: Bot = request.app["bot"]
+    dp: Dispatcher = request.app["dp"]
+
+    await dp.feed_update(bot, update)
+    return web.Response()
+
+
+async def on_startup(app: web.Application):
+    """
+    Старт приложения:
+    - настраиваем вебхук
+    - инициализируем БД
+    """
+    bot: Bot = app["bot"]
+
+    # Вебхук
+    await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook set to {WEBHOOK_URL}")
+
+    # Таблицы БД
     init_db()
     init_roles_table()
     init_premium_table()
     init_usage_table()
-
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"🚀 WEBHOOK установлен: {WEBHOOK_URL}")
+    logging.info("Database tables initialized")
 
 
-async def on_shutdown(bot: Bot):
-    await bot.delete_webhook()
-    logging.info("🛑 WEBHOOK удалён")
+async def on_shutdown(app: web.Application):
+    """
+    Корректное завершение работы: удаляем вебхук и закрываем сессию бота.
+    """
+    bot: Bot = app["bot"]
 
-
-async def webhook_handler(request: web.Request) -> web.Response:
-    bot: Bot = request.app["bot"]
-    dp: Dispatcher = request.app["dp"]
-
-    data = await request.json()
-    update = Update.model_validate(data)
-
-    await dp.feed_update(bot, update)
-    return web.Response(text="OK")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.session.close()
+    logging.info("Bot webhook deleted and session closed")
 
 
 async def main():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN не задан!")
+        raise RuntimeError("BOT_TOKEN is not set")
 
-    bot = Bot(BOT_TOKEN)
+    # Бот и диспетчер
+    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    dp.include_router(router)
+    # Роутеры
+    dp.include_router(user_router)
+    dp.include_router(admin_router)
 
+    # Aiohttp-приложение
     app = web.Application()
     app["bot"] = bot
     app["dp"] = dp
 
-    app.router.add_post(WEBHOOK_PATH, webhook_handler)
-
-    await on_startup(bot)
+    app.router.add_post(WEBHOOK_PATH, handle)
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
 
     runner = web.AppRunner(app)
     await runner.setup()
-
-    site = web.TCPSite(runner, host="0.0.0.0", port=8080)
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
 
-    logging.info("💡 BOT RUNNING on 0.0.0.0:8080")
+    logging.info("💡 BOT RUNNING VIA WEBHOOK on 0.0.0.0:8080")
 
     try:
         await asyncio.Event().wait()
     finally:
-        await on_shutdown(bot)
-        await bot.session.close()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
