@@ -1,75 +1,106 @@
 import sqlite3
 import time
+from typing import Optional, Tuple
+
 from config import DB_PATH
 
 
-def init_premium_table():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+def get_connection() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH)
 
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS premium (
-        user_id INTEGER PRIMARY KEY,
-        until INTEGER NOT NULL,
-        tariff TEXT NOT NULL
+
+def init_premium_table() -> None:
+    """
+    Таблица premium:
+    - user_id — PK
+    - until   — UNIX-время окончания (int)
+    - tariff  — строка тарифа ('1 месяц', '6 месяцев', '1 год' и т.п.)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS premium (
+            user_id INTEGER PRIMARY KEY,
+            until   INTEGER NOT NULL,
+            tariff  TEXT NOT NULL
+        )
+        """
     )
-    """)
 
     conn.commit()
     conn.close()
 
 
-def set_premium(user_id: int, days: int, tariff: str):
-    """Выдаёт премиум: если премиум активен — продлевает."""
-    now = int(time.time())
+def _get_raw_premium(user_id: int) -> Optional[Tuple[int, str]]:
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    cursor.execute(
+        "SELECT until, tariff FROM premium WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
 
-    # Проверяем, есть ли активный премиум
-    c.execute("SELECT until FROM premium WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
-
-    if row:
-        current_until = row[0]
-        # Если премиум активен — продлеваем
-        if current_until > now:
-            until = current_until + (days * 86400)
-        else:
-            until = now + (days * 86400)
-    else:
-        until = now + (days * 86400)
-
-    c.execute("""
-        INSERT INTO premium (user_id, until, tariff)
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET until=excluded.until, tariff=excluded.tariff
-    """, (user_id, until, tariff))
-
-    conn.commit()
     conn.close()
-
-    return until
+    return row if row else None
 
 
 def has_active_premium(user_id: int) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    now = int(time.time())
+    """
+    Проверяем, есть ли активный премиум (until > now).
+    """
+    row = _get_raw_premium(user_id)
+    if not row:
+        return False
 
-    c.execute("SELECT until FROM premium WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
+    until, _ = row
+    now_ts = int(time.time())
+    return until > now_ts
+
+
+def get_premium(user_id: int) -> Optional[Tuple[int, str]]:
+    """
+    Возвращает (until, tariff) или None.
+    """
+    return _get_raw_premium(user_id)
+
+
+def set_premium(user_id: int, days: int, tariff: str) -> None:
+    """
+    Выдача/продление премиума.
+
+    Если у пользователя уже есть активный премиум — добавляем дни к текущему сроку.
+    Если премиум истёк или записи нет — считаем от текущего момента.
+    """
+    now_ts = int(time.time())
+    row = _get_raw_premium(user_id)
+
+    if row:
+        current_until, _ = row
+        if current_until > now_ts:
+            # активный — продлеваем от текущего конца
+            new_until = current_until + days * 86400
+        else:
+            # истёк — считаем от текущего момента
+            new_until = now_ts + days * 86400
+    else:
+        new_until = now_ts + days * 86400
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO premium (user_id, until, tariff)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            until = excluded.until,
+            tariff = excluded.tariff
+        """,
+        (user_id, new_until, tariff),
+    )
+
+    conn.commit()
     conn.close()
-
-    return bool(row and row[0] > now)
-
-
-def get_premium(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    c.execute("SELECT until, tariff FROM premium WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
-
-    conn.close()
-    return row if row else (None, None)
