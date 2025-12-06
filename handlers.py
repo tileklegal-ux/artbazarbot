@@ -33,9 +33,61 @@ class UserStates(StatesGroup):
     margin_price = State()
 
 
+MAIN_MENU_BUTTONS = {
+    "Анализ рынка 📊",
+    "Подбор ниши 🧭",
+    "Калькулятор маржи 💰",
+    "Рекомендации ⚡",
+    "Личный кабинет 👤",
+    "Премиум 🚀",
+    "Админ 👑",
+    "🌐 Сменить язык",
+}
+
+
+async def _reroute_main_menu_button(message: Message, state: FSMContext) -> bool:
+    """
+    Если пользователь в FSM (await_*) нажимает одну из главных кнопок,
+    выходим из сценария и переходим в нужный хэндлер.
+    Возвращает True, если было перенаправление.
+    """
+    text = message.text
+    if text not in MAIN_MENU_BUTTONS:
+        return False
+
+    user_id = message.from_user.id
+    await state.clear()
+
+    # Импорт тут, чтобы не ловить циклические зависимости
+    from admin_panel import enter_admin_panel  # type: ignore[import]
+
+    if text == "Анализ рынка 📊":
+        await ask_market_question(message, state)
+    elif text == "Подбор ниши 🧭":
+        await ask_niche_question(message, state)
+    elif text == "Калькулятор маржи 💰":
+        await margin_start(message, state)
+    elif text == "Рекомендации ⚡":
+        await ask_reco_question(message, state)
+    elif text == "Личный кабинет 👤":
+        await personal_cabinet(message)
+    elif text == "Премиум 🚀":
+        await premium_info(message)
+    elif text == "Админ 👑":
+        await enter_admin_panel(message, state)
+    elif text == "🌐 Сменить язык":
+        await change_language(message, state)
+    else:
+        role = get_role(user_id)
+        kb = get_main_keyboard(role)
+        await message.answer(get_text(user_id, "menu_title"), reply_markup=kb)
+
+    return True
+
+
 # ---------- /start ----------
 @router.message(F.text == "/start")
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
     user = message.from_user
     upsert_user(
         user_id=user.id,
@@ -43,6 +95,7 @@ async def cmd_start(message: Message):
         first_name=user.first_name,
         last_name=user.last_name,
     )
+    await state.clear()
 
     await message.answer(
         get_text(user.id, "choose_language"),
@@ -50,7 +103,7 @@ async def cmd_start(message: Message):
     )
 
 
-# ---------- Смена языка по кнопке ----------
+# ---------- Смена языка ----------
 @router.message(F.text == "🌐 Сменить язык")
 async def change_language(message: Message, state: FSMContext):
     await state.clear()
@@ -62,22 +115,23 @@ async def change_language(message: Message, state: FSMContext):
 
 # ---------- Установка языка ----------
 @router.message(F.text == "Русский 🇷🇺")
-async def set_lang_ru(message: Message):
-    await _set_language_and_show_menu(message, "ru")
+async def set_lang_ru(message: Message, state: FSMContext):
+    await _set_language_and_show_menu(message, state, "ru")
 
 
 @router.message(F.text == "Кыргызча 🇰🇬")
-async def set_lang_kg(message: Message):
-    await _set_language_and_show_menu(message, "kg")
+async def set_lang_kg(message: Message, state: FSMContext):
+    await _set_language_and_show_menu(message, state, "kg")
 
 
 @router.message(F.text == "Қазақша 🇰🇿")
-async def set_lang_kz(message: Message):
-    await _set_language_and_show_menu(message, "kz")
+async def set_lang_kz(message: Message, state: FSMContext):
+    await _set_language_and_show_menu(message, state, "kz")
 
 
-async def _set_language_and_show_menu(message: Message, lang: str):
+async def _set_language_and_show_menu(message: Message, state: FSMContext, lang: str):
     user_id = message.from_user.id
+    await state.clear()
     set_user_language(user_id, lang)
     role = get_role(user_id)
     kb = get_main_keyboard(role)
@@ -96,6 +150,9 @@ async def ask_market_question(message: Message, state: FSMContext):
 
 @router.message(UserStates.await_market)
 async def handle_market_question(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
 
     ok, msg = check_limit(user_id)
@@ -127,6 +184,9 @@ async def ask_niche_question(message: Message, state: FSMContext):
 
 @router.message(UserStates.await_niche)
 async def handle_niche_question(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
 
     ok, msg = check_limit(user_id)
@@ -158,6 +218,9 @@ async def ask_reco_question(message: Message, state: FSMContext):
 
 @router.message(UserStates.await_reco)
 async def handle_reco_question(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
 
     ok, msg = check_limit(user_id)
@@ -194,7 +257,6 @@ def _parse_number(text: str) -> Optional[float]:
 async def margin_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    # считаем как отдельный запрос → учитываем лимит
     ok, msg = check_limit(user_id)
     if not ok:
         await message.answer(msg, parse_mode="Markdown")
@@ -209,6 +271,9 @@ async def margin_start(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_purchase)
 async def margin_step_purchase(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     value = _parse_number(message.text)
     if value is None:
@@ -225,6 +290,9 @@ async def margin_step_purchase(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_delivery)
 async def margin_step_delivery(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     value = _parse_number(message.text)
     if value is None:
@@ -241,6 +309,9 @@ async def margin_step_delivery(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_marketing)
 async def margin_step_marketing(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     value = _parse_number(message.text)
     if value is None:
@@ -257,6 +328,9 @@ async def margin_step_marketing(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_other)
 async def margin_step_other(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     value = _parse_number(message.text)
     if value is None:
@@ -273,13 +347,15 @@ async def margin_step_other(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_fee)
 async def margin_step_fee(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     value = _parse_number(message.text)
     if value is None:
         await message.answer(get_text(user_id, "margin_invalid_number"))
         return
 
-    # value — в процентах (0..100)
     await state.update_data(fee=value)
     await state.set_state(UserStates.margin_price)
     await message.answer(
@@ -290,6 +366,9 @@ async def margin_step_fee(message: Message, state: FSMContext):
 
 @router.message(UserStates.margin_price)
 async def margin_step_price(message: Message, state: FSMContext):
+    if await _reroute_main_menu_button(message, state):
+        return
+
     user_id = message.from_user.id
     sale_price = _parse_number(message.text)
     if sale_price is None or sale_price <= 0:
@@ -320,21 +399,18 @@ async def margin_step_price(message: Message, state: FSMContext):
     else:
         roi_percent = 0.0
 
-    # Точка безубыточности
     breakeven_price = None
     if 0.0 <= fee_rate < 1.0:
         denominator = 1.0 - fee_rate
         if denominator > 0:
             breakeven_price = cost_base / denominator
 
-    # Цена для ~30% маржи
     recommended_price = None
     if 0.0 <= fee_rate < 1.0:
         denominator = (1.0 - fee_rate) - 0.30
         if denominator > 0:
             recommended_price = cost_base / denominator
 
-    # Формируем дополнительные блоки
     breakeven_block = ""
     recommended_block = ""
     if breakeven_price is not None:
@@ -428,7 +504,6 @@ async def personal_cabinet(message: Message):
         lines.append(get_text(uid, "cabinet_basic"))
         lines.append("")
 
-    # Лимиты
     lines.append(get_text(uid, "cabinet_limits_title"))
     if has_prem:
         lines.append(
@@ -446,7 +521,6 @@ async def personal_cabinet(message: Message):
             )
         )
 
-    # История usage
     history = get_recent_usage(uid, limit=5)
     lines.append("")
     if not history:
@@ -455,7 +529,6 @@ async def personal_cabinet(message: Message):
         lines.append(get_text(uid, "cabinet_history_title"))
         for action, ts in history:
             dt_str = datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M")
-            # без текста действия, по ТЗ достаточно даты/времени
             lines.append(f"- {dt_str}")
 
     text = "\n".join(lines)
