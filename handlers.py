@@ -10,6 +10,7 @@ from openai_api import analyze_market, pick_niche, recommendations
 from roles_db import get_role
 from premium_db import has_active_premium, get_premium
 
+
 router = Router()
 
 
@@ -20,7 +21,7 @@ class UserStates(StatesGroup):
     await_reco = State()
 
 
-# ---------- тексты по языкам ----------
+# ---------- Тексты по языкам ----------
 def get_texts(user_id: int):
     lang = get_user_language(user_id) or "ru"
 
@@ -38,9 +39,9 @@ def get_texts(user_id: int):
             "margin_soon": "Маржа калькулятору кийинки жаңыланууда кошулат.",
             "premium_info_no": (
                 "Азыр премиум жок. Премиумда ботто суроолор жок чектөөсүз.\n"
-                "Тарифтер: 1 ай, 6 ай, 1 жыл — узнавай у менеджера."
+                "Тарифтер: 1 ай, 6 ай, 1 жыл — менеджерден же колдоо аркылуу билсең болот."
             ),
-            "premium_info_yes": "Сенде активдүү премиум бар чейин: {date}. Пайдалана бер 🚀",
+            "premium_info_yes": "Сенде активдүү премиум бар: {date} чейин. Пайдалана бер 🚀",
             "unknown": "Команданы түшүнгөн жокмун. Төмөнкү менюдан баскычтарды колдонуңуз.",
         }
 
@@ -85,7 +86,7 @@ def get_texts(user_id: int):
     }
 
 
-# ---------- /start и выбор языка ----------
+# ---------- /start ----------
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
     await message.answer(
@@ -94,11 +95,13 @@ async def cmd_start(message: Message):
     )
 
 
+# ---------- Установка языка + показ меню по роли ----------
 @router.message(F.text == "Русский 🇷🇺")
 async def set_lang_ru(message: Message):
-    set_user_language(message.from_user.id, "ru")
-    t = get_texts(message.from_user.id)
-    role = get_role(message.from_user.id)
+    user_id = message.from_user.id
+    set_user_language(user_id, "ru")
+    t = get_texts(user_id)
+    role = get_role(user_id)
     kb = get_main_keyboard(role)
 
     await message.answer(t["lang_chosen"])
@@ -107,9 +110,10 @@ async def set_lang_ru(message: Message):
 
 @router.message(F.text == "Кыргызча 🇰🇬")
 async def set_lang_kg(message: Message):
-    set_user_language(message.from_user.id, "kg")
-    t = get_texts(message.from_user.id)
-    role = get_role(message.from_user.id)
+    user_id = message.from_user.id
+    set_user_language(user_id, "kg")
+    t = get_texts(user_id)
+    role = get_role(user_id)
     kb = get_main_keyboard(role)
 
     await message.answer(t["lang_chosen"])
@@ -118,16 +122,17 @@ async def set_lang_kg(message: Message):
 
 @router.message(F.text == "Қазақша 🇰🇿")
 async def set_lang_kz(message: Message):
-    set_user_language(message.from_user.id, "kz")
-    t = get_texts(message.from_user.id)
-    role = get_role(message.from_user.id)
+    user_id = message.from_user.id
+    set_user_language(user_id, "kz")
+    t = get_texts(user_id)
+    role = get_role(user_id)
     kb = get_main_keyboard(role)
 
     await message.answer(t["lang_chosen"])
     await message.answer(t["welcome"], reply_markup=kb)
 
 
-# ---------- Меню: Анализ рынка ----------
+# ---------- Анализ рынка ----------
 @router.message(F.text == "Анализ рынка 📊")
 async def ask_market_question(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
@@ -146,7 +151,7 @@ async def handle_market_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Меню: Подбор ниши ----------
+# ---------- Подбор ниши ----------
 @router.message(F.text == "Подбор ниши 🧭")
 async def ask_niche_question(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
@@ -165,7 +170,7 @@ async def handle_niche_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Меню: Рекомендации ----------
+# ---------- Рекомендации ----------
 @router.message(F.text == "Рекомендации ⚡")
 async def ask_reco_question(message: Message, state: FSMContext):
     t = get_texts(message.from_user.id)
@@ -184,14 +189,14 @@ async def handle_reco_question(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ---------- Меню: Калькулятор маржи (пока-заглушка) ----------
+# ---------- Калькулятор маржи (заглушка) ----------
 @router.message(F.text == "Калькулятор маржи 💰")
 async def margin_stub(message: Message):
     t = get_texts(message.from_user.id)
     await message.answer(t["margin_soon"])
 
 
-# ---------- Меню: Премиум ----------
+# ---------- Премиум ----------
 @router.message(F.text == "Премиум 🚀")
 async def premium_info(message: Message):
     t = get_texts(message.from_user.id)
@@ -206,6 +211,40 @@ async def premium_info(message: Message):
         await message.answer(text)
     else:
         await message.answer(t["premium_info_no"])
+
+
+# ---------- Админ-кнопка для владельца ----------
+@router.message(F.text == "Админ 👑")
+async def admin_button(message: Message):
+    role = get_role(message.from_user.id)
+    if role != "owner":
+        await message.answer("Эта зона только для владельца 👑.")
+        return
+
+    await message.answer(
+        "👑 Админ-панель владельца. Здесь будут:\n"
+        "- управление менеджерами\n"
+        "- выдача премиума\n"
+        "- просмотр статистики\n\n"
+        "Пока это заглушка, но кнопка и роль работают."
+    )
+
+
+# ---------- Кнопка Менеджер 📋 ----------
+@router.message(F.text == "Менеджер 📋")
+async def manager_button(message: Message):
+    role = get_role(message.from_user.id)
+    if role not in ("manager", "owner"):
+        await message.answer("Доступно только менеджеру и владельцу.")
+        return
+
+    await message.answer(
+        "📋 Панель менеджера. Здесь будут:\n"
+        "- работа с премиум-клиентами\n"
+        "- фиксация оплат\n"
+        "- поддержка клиентов\n\n"
+        "Пока заглушка, но роль и интерфейс уже работают."
+    )
 
 
 # ---------- Любой другой текст ----------
